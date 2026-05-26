@@ -1,0 +1,15 @@
+{
+  "name": "bitaxe-difficulty-tracker",
+  "version": "1.0.0",
+  "description": "Bitaxe Difficulty Tracker - Node.js server for Linux/Umbrel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,2333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <meta name="theme-color" content="#0d1117">
+  <meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>Bitaxe Difficulty Tracker</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07111f;--surf:#0b1929;--surf2:#0f2035;--bdr:#152d4a;
+  --grn:#22d37a;--red:#f45060;--txt:#f0f8ff;--muted:#8ab4cc;--muted2:#1a3550;
+  --orange:#f7931a;
+}
+html,body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'SF Pro','Roboto','Segoe UI',sans-serif;min-height:100vh;overflow-x:hidden}
+
+/* HEADER */
+#hdr{background:var(--surf);border-bottom:1px solid var(--bdr);
+  padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
+.axe{width:36px;height:36px;border-radius:8px;background:var(--orange);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 0 18px rgba(247,147,26,.5)}
+#hdr-title{flex:1}
+#hdr-title h1{font-size:1rem;font-weight:700;letter-spacing:.08em}
+#hdr-title p{font-size:.65rem;color:var(--muted);margin-top:1px}
+#refresh-btn{background:transparent;border:1px solid var(--bdr);color:var(--muted);border-radius:8px;padding:6px 12px;font-size:.72rem;cursor:pointer;white-space:nowrap}
+#refresh-btn.spinning .ricon{display:inline-block;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* NAV */
+#nav{display:flex;background:var(--surf);border-bottom:1px solid var(--bdr);position:sticky;top:61px;z-index:99}
+.nav-tab{flex:1;padding:11px 4px;text-align:center;font-size:.68rem;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer;text-transform:uppercase;letter-spacing:.04em;transition:all .2s}
+.nav-tab.on{color:var(--orange);border-bottom-color:var(--orange)}
+
+/* MAIN */
+#main{padding:14px;padding-bottom:30px}
+.section{display:none}
+.section.on{display:block}
+
+/* CARD BASE — matches settings style */
+.card{background:var(--surf);border:1px solid var(--bdr);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.card-hdr{padding:12px 16px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:10px}
+.card-dot{width:8px;height:8px;border-radius:50%;background:var(--muted2);flex-shrink:0;transition:all .3s}
+.card-dot.live{background:var(--grn);box-shadow:0 0 6px var(--grn)}
+.card-dot.err{background:var(--red)}
+.card-ip{font-size:.92rem;font-weight:700;flex:1}
+.card-hr{font-size:.95rem;color:var(--grn);font-weight:700}
+
+/* STAT ROWS */
+.stat-row{display:flex;align-items:center;padding:9px 16px;border-bottom:1px solid var(--muted2);font-size:.8rem}
+.stat-row:last-child{border-bottom:none}
+.stat-lbl{color:var(--muted);width:115px;flex-shrink:0;font-size:.75rem}
+.stat-val{font-weight:600;flex:1}
+.green{color:var(--grn)}
+.red{color:var(--red)}
+.orange{color:var(--orange)}
+
+/* TEMP BARS */
+.temp-section{padding:10px 16px;border-top:1px solid var(--muted2)}
+.temp-sec-lbl{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.temp-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.temp-row:last-child{margin-bottom:0}
+.temp-lbl{font-size:.7rem;color:var(--muted);width:52px;flex-shrink:0}
+.temp-bar-wrap{flex:1;background:var(--muted2);border-radius:4px;height:6px;overflow:hidden}
+.temp-bar{height:100%;border-radius:4px}
+.temp-val{font-size:.75rem;font-weight:600;width:46px;text-align:right;flex-shrink:0}
+
+/* CHART CARD */
+.chart-card{background:var(--surf);border:1px solid var(--bdr);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.chart-card-hdr{padding:10px 16px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between}
+.chart-card-title{font-size:.75rem;font-weight:600;display:flex;align-items:center;gap:8px}
+.chart-card-sub{font-size:.62rem;color:var(--muted)}
+.chart-wrap{padding:12px;background:var(--bg)}
+canvas.diff-chart{width:100%;display:block;border-radius:8px}
+
+/* TOP 10 */
+.top10-hdr{padding:12px 16px;border-bottom:1px solid var(--bdr);font-size:.8rem;font-weight:700}
+.top10-row{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--muted2);font-size:.8rem}
+.top10-row:last-child{border-bottom:none}
+.top10-rank{width:28px;text-align:center;flex-shrink:0}
+.top10-diff{flex:1;font-weight:600}
+.top10-meta{font-size:.62rem;color:var(--muted);text-align:right;line-height:1.6}
+.acc{color:var(--grn)}
+
+/* SETTINGS */
+.set-hdr{padding:12px 16px;border-bottom:1px solid var(--bdr);font-size:.8rem;font-weight:700}
+.set-body{padding:14px 16px}
+.set-sec{font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--bdr);padding-bottom:5px;margin:4px 0 12px}
+.field-group{margin-bottom:12px}
+.field-lbl{font-size:.67rem;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
+.field-input{width:100%;background:var(--bg);border:1px solid var(--bdr);color:var(--txt);border-radius:8px;padding:9px 12px;font-size:.88rem;font-family:inherit}
+.field-input:focus{outline:none;border-color:var(--orange)}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.toggle-lbl{font-size:.78rem;color:var(--txt)}
+input[type=checkbox].toggle{width:20px;height:20px;accent-color:var(--grn);cursor:pointer}
+.btn-row{display:flex;gap:10px;margin-top:14px}
+.btn-save{flex:1;background:var(--grn);border:none;color:#000;font-weight:700;padding:11px;border-radius:8px;font-size:.78rem;cursor:pointer;font-family:inherit;text-transform:uppercase}
+.btn-restart{flex:1;background:transparent;border:1px solid var(--red);color:var(--red);padding:11px;border-radius:8px;font-size:.78rem;cursor:pointer;font-family:inherit;text-transform:uppercase}
+.set-msg{font-size:.7rem;text-align:center;min-height:18px;margin-top:10px;color:var(--muted)}
+
+.loading{text-align:center;padding:40px;color:var(--muted);font-size:.82rem}
+
+#mob-notif-wrap{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;}
+.mob-notif{display:flex;align-items:flex-start;gap:10px;padding:11px 14px;border-radius:10px;background:var(--surf2);border-left:4px solid var(--orange);box-shadow:0 4px 16px rgba(0,0,0,.5);}
+.mob-notif.ok{border-left-color:var(--grn);}.mob-notif.err{border-left-color:var(--red);}
+.mob-notif-body{flex:1;}.mob-notif-title{font-weight:700;color:var(--txt);font-size:.84rem;margin-bottom:1px;}
+.mob-notif-msg{color:var(--muted);font-size:.74rem;}
+.mob-notif-x{background:none;border:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:0 0 0 4px;line-height:1;flex-shrink:0;}
+
+.card.temps-only .mob-stats-grid,
+.card.temps-only .stat-row,
+.card.temps-only .top10-wrap,
+.card.temps-only .diff-chart-wrap,
+.card.temps-only .hash-chart-wrap {
+  display: none !important;
+}
+
+.mob-sc-card{background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;padding:11px 14px;display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.mob-sc-name{font-weight:600;font-size:.88rem;color:var(--txt);flex:1}
+.mob-sc-sub{font-size:.72rem;color:var(--muted);margin-top:2px}
+.mob-sc-tog{width:36px;height:20px;border-radius:10px;border:none;cursor:pointer;position:relative;flex-shrink:0;transition:background .2s}
+.mob-sc-tog.on{background:var(--grn)}.mob-sc-tog.off{background:var(--muted2)}
+.mob-sc-tog::after{content:'';position:absolute;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s}
+.mob-sc-tog.on::after{left:18px}.mob-sc-tog.off::after{left:2px}
+.mob-sc-sec{background:var(--surf2);border-radius:8px;padding:11px 13px;margin-bottom:8px}
+.mob-sc-sec-t{font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600}
+.mob-sc-fld{display:flex;flex-direction:column;gap:3px;margin-bottom:9px}
+.mob-sc-lbl{font-size:.7rem;color:var(--muted)}
+.mob-sc-inp{background:var(--surf);border:1px solid var(--bdr);border-radius:5px;color:var(--txt);font-size:.82rem;padding:6px 9px;width:100%;box-sizing:border-box}
+.mob-sc-sel{background:var(--surf);border:1px solid var(--bdr);border-radius:5px;color:var(--txt);font-size:.82rem;padding:5px 8px;width:100%;box-sizing:border-box}
+.mob-sc-crow,.mob-sc-arow{display:flex;gap:5px;align-items:center;margin-bottom:7px;flex-wrap:wrap}
+.mob-sc-add{background:transparent;border:1px solid var(--muted2);color:var(--muted);font-size:.74rem;padding:4px 10px;border-radius:5px;cursor:pointer;margin-top:2px}
+.mob-sc-rm{background:transparent;border:none;color:var(--muted);font-size:.9rem;cursor:pointer;padding:2px 5px;flex-shrink:0}
+  :root { color-scheme: dark; }
+  select { background-color: var(--surf) !important; color: var(--txt) !important; }
+  input[type="number"], input[type="text"], input { background-color: var(--surf) !important; color: var(--txt) !important; }
+
+#mob-block-banner{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.93);display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;}
+#mob-block-banner.show{display:flex;}
+.mob-block-emoji{font-size:5rem;margin-bottom:16px;animation:mob-pulse 1s ease-in-out infinite;}
+.mob-block-title{font-size:2rem;font-weight:900;color:#f7931a;letter-spacing:.05em;margin-bottom:8px;}
+.mob-block-sub{font-size:1rem;color:#fff;opacity:.8;margin-bottom:24px;}
+.mob-block-close{background:#f7931a;border:none;color:#000;font-weight:700;font-size:1rem;padding:12px 32px;border-radius:8px;cursor:pointer;}
+@keyframes mob-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.15);}}
+</style>
+</head>
+<body>
+
+<canvas id="hash-rain" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;display:none"></canvas>
+
+<div id="hdr">
+  <div class="axe">⛏</div>
+  <div id="hdr-title">
+    <h1>Bitaxe Difficulty Tracker</h1>
+    <p id="hdr-sub">Connecting…</p>
+  </div>
+  <button id="btn-donate-mob" onclick="document.getElementById('mob-donate-overlay').style.display='flex'" style="background:transparent;border:1px solid #f7931a;color:#f7931a;font-family:inherit;font-size:.62rem;padding:4px 10px;border-radius:6px;cursor:pointer;letter-spacing:.06em;white-space:nowrap">💛 Donate</button>
+  <button id="refresh-btn" onclick="manualRefresh()"><span class="ricon">↻</span> Refresh</button>
+</div>
+
+<div id="nav">
+  <div class="nav-tab on" onclick="showTab('miners')">⛏ Miners</div>
+  <div class="nav-tab" onclick="showTab('addminer')">⚙ Miner</div>
+  <div class="nav-tab" onclick="showTab('top10')">📋 Session</div>
+  <div class="nav-tab" onclick="showTab('alltime')">⭐ All-Time</div>
+  <div class="nav-tab" onclick="showTab('pool')">⛁ Pool</div>
+  <div class="nav-tab" onclick="showTab('settings')">⚙ Settings</div>
+</div>
+
+<div id="main">
+  <div id="tab-miners" class="section on"><div id="mob-notif-wrap"></div><div class="loading">Loading…</div></div>
+  <div id="tab-addminer" class="section"><div class="loading">Loading…</div></div>
+  <div id="tab-top10" class="section"><div class="loading">Loading…</div></div>
+  <div id="tab-alltime" class="section"><div class="loading">Loading…</div></div>
+  <div id="tab-pool" class="section"><div class="loading">Loading...</div></div>
+  <div id="tab-settings" class="section"><div class="loading">Loading…</div></div>
+</div>
+
+<script>
+const SERVER = window.location.protocol + '//' + window.location.host;
+const MEDALS = ['🥇','🥈','🥉'];
+const COLORS = ['#f7931a','#38bdf8','#a78bfa','#34d399','#fb7185','#fbbf24','#60a5fa','#f472b6'];
+let minerData = {}, allTimeData = {}, sessionData = {}, minerIPs = [], activeTab = 'miners', refreshing = false, refreshPaused = false;
+
+function fmtD(n){
+  if(!n||isNaN(n)) return '—';
+  if(n>=1e12) return (n/1e12).toFixed(2)+'T';
+  if(n>=1e9)  return (n/1e9).toFixed(2)+'G';
+  if(n>=1e6)  return (n/1e6).toFixed(2)+'M';
+  if(n>=1e3)  return (n/1e3).toFixed(1)+'K';
+  return n.toFixed(1);
+}
+function fmtUp(s){
+  if(!s) return '—';
+  var d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);
+  return d>0?d+'d '+h+'h':h>0?h+'h '+m+'m':m+'m';
+}
+function fmtHR(hr){
+  if(!hr) return '—';
+  return hr>=1000?(hr/1000).toFixed(2)+' TH/s':hr.toFixed(1)+' GH/s';
+}
+function tempColor(v,isVR){
+  if(isVR) return v>80?'var(--red)':v>70?'var(--orange)':'var(--grn)';
+  return v>=70?'var(--red)':v>=65?'var(--orange)':'var(--grn)';
+}
+function hexRgba(h,a){
+  var r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+  return 'rgba('+r+','+g+','+b+','+a+')';
+}
+
+// ── Mobile miner color storage ────────────────────────────────────────────────
+var mobileColors = {};
+function loadMobileColors(){
+  try{ var s=localStorage.getItem('mob_colors'); if(s) mobileColors=JSON.parse(s); }catch(e){}
+}
+function saveMobileColors(){
+  try{ localStorage.setItem('mob_colors',JSON.stringify(mobileColors)); }catch(e){}
+}
+function getMinerColor(ip){
+  if(mobileColors[ip]) return mobileColors[ip];
+  return COLORS[minerIPs.indexOf(ip)%COLORS.length];
+}
+function setMinerColor(ip, color){
+  mobileColors[ip]=color;
+  saveMobileColors();
+}
+loadMobileColors();
+
+var minerNames={};
+function loadMinerNames(){ try{var s=localStorage.getItem('mob_names');if(s)minerNames=JSON.parse(s);}catch(e){} }
+function saveMinerNames(){ try{localStorage.setItem('mob_names',JSON.stringify(minerNames));}catch(e){} }
+function getMinerName(ip){ return minerNames[ip]||''; }
+loadMinerNames();
+
+
+
+function parseDiffStr(v){
+  if(!v) return 0; if(typeof v==='number') return v;
+  var m=String(v).match(/^([\d.]+)([KMGT]?)$/i); if(!m) return 0;
+  var n=parseFloat(m[1]),s=m[2].toUpperCase();
+  if(s==='T') return n*1e12; if(s==='G') return n*1e9;
+  if(s==='M') return n*1e6; if(s==='K') return n*1e3; return n;
+}
+
+function showTab(name){
+  activeTab = name;
+  document.querySelectorAll('.nav-tab').forEach((t,i)=>t.classList.toggle('on',['miners','addminer','top10','alltime','pool','settings'][i]===name));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('on'));
+  document.getElementById('tab-'+name).classList.add('on');
+  if(name==='addminer') renderAddMiner();
+  if(name==='top10') renderTop10();
+  if(name==='alltime') renderAllTime();
+  if(name==='pool') renderPool();
+  if(name==='settings') renderSettings();
+}
+
+async function loadMiners(){
+  if(minerIPs.length>0) return; // already have miners, don't overwrite
+  try{
+    const r=await fetch(SERVER+'/miners');
+    if(r.ok){
+      const d=await r.json();
+      if(d.ips&&d.ips.length){ minerIPs=d.ips; return; }
+    }
+  }catch(e){}
+  // Fallback: pull IPs from session data or all-time data keys
+  var fromSession=Object.keys(sessionData).filter(function(k){return k&&k!=='undefined';});
+  var fromAllTime=Object.keys(allTimeData).filter(function(k){return k&&k!=='undefined';});
+  if(fromSession.length) minerIPs=fromSession;
+  else if(fromAllTime.length) minerIPs=fromAllTime;
+}
+async function loadAllMinerData(){
+  const results=await Promise.allSettled(minerIPs.map(async ip=>{
+    const r=await fetch(SERVER+'/api?ip='+encodeURIComponent(ip),{signal:AbortSignal.timeout(5000)});
+    if(!r.ok) return {ip,error:true};
+    const d=await r.json(); return {ip,...d};
+  }));
+  results.forEach(r=>{if(r.status==='fulfilled'&&r.value) minerData[r.value.ip]=r.value;});
+}
+async function loadAllTime(){
+  try{const r=await fetch(SERVER+'/alltime');if(r.ok) allTimeData=await r.json();}catch(e){}
+}
+async function loadSession(){
+  try{const r=await fetch(SERVER+'/session');if(r.ok) sessionData=await r.json();}catch(e){}
+}
+
+// ── MINERS TAB ────────────────────────────────────────────────────────────────
+function renderMiners(){
+  var c=document.getElementById('tab-miners');
+  if(!minerIPs.length){c.innerHTML='<div id="mob-notif-wrap"></div><div class="loading">No miners configured</div>';return;}
+  c.innerHTML='<div id="mob-notif-wrap"></div>';
+  var totalShares=0, globalBest=0;
+
+  
+  // Total hashrate summary card
+  var totalHR=0;
+  minerIPs.forEach(function(ip){
+    var sd=sessionData[ip]||{};
+    var d=minerData[ip]||{};
+    var hr=sd.hashrate!=null?sd.hashrate:(d.hashRate_1m||d.hashRate||0);
+    totalHR+=hr;
+  });
+  if(minerIPs.length>1){
+    var sumCard=document.createElement('div'); sumCard.className='card';
+    sumCard.style.marginBottom='14px';
+    var _mTotalW=0; minerIPs.forEach(function(ip){var p=(sessionData[ip]||{}).power;if(p!=null)_mTotalW+=p;});
+    var _mPwrRate=parseFloat(localStorage.getItem('mob_power_rate')||'0');
+    var _mCostDay=_mTotalW>0&&_mPwrRate>0?(_mTotalW/1000)*24*_mPwrRate:0;
+    var _mCostStr=_mCostDay>0?'$'+_mCostDay.toFixed(2)+'/day':'';
+    sumCard.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;flex-wrap:wrap;gap:4px">'+
+      '<div style="font-size:1.05rem;font-weight:700;color:var(--muted)" id="mob-totalwatts">'+(_mTotalW>0?_mTotalW.toFixed(1)+'W':'—W')+'</div>'+
+      (_mCostStr?'<div id="mob-totalcost" style="font-size:.85rem;font-weight:600;color:#f7931a">'+_mCostStr+'</div>':'<div id="mob-totalcost"></div>')+
+      '<div style="font-size:1.05rem;font-weight:700;color:var(--grn)" id="mob-totalhr">'+(totalHR>=1000?(totalHR/1000).toFixed(2)+' TH/s':totalHR.toFixed(1)+' GH/s')+'</div></div>';
+    c.appendChild(sumCard);
+  }
+
+  minerIPs.forEach(function(ip){
+    var d=minerData[ip]||{};
+    var key=ip.replace(/[.]/g,'_');
+    var isLive=(d.hashRate_1m>0)||(d.hashRate>0);
+    var hr=d.hashRate_1m||d.hashRate||0;
+    var color=getMinerColor(ip);
+    totalShares+=d.sharesAccepted||0;
+    var best=parseDiffStr(d.bestDiff)||0;
+    if(best>globalBest) globalBest=best;
+    var rej=d.sharesRejected||0, tot=d.sharesAccepted||0;
+    var rejStr=tot>0?rej+' ('+(rej/tot*100).toFixed(2)+'%)':String(rej);
+
+    // ── Stats card ────────────────────────────────────────────────────────────
+    var card=document.createElement('div'); card.className='card';
+    card.style.borderLeft='3px solid '+(isLive?color:'var(--muted2)');
+
+    var hdr=document.createElement('div'); hdr.className='card-hdr';
+    var dotEl=document.createElement('div'); dotEl.id='dot-'+key; dotEl.className='card-dot'+(isLive?' live':d.error?' err':'');
+    var nameVal=getMinerName(ip);
+    var ipEl=document.createElement('div'); ipEl.style.flex='1'; ipEl.style.minWidth='0';
+    var nameSpan=document.createElement('div'); nameSpan.className='card-ip'; nameSpan.style.color=color;
+    nameSpan.textContent=nameVal||ip;
+    ipEl.appendChild(nameSpan);
+    var hrEl=document.createElement('div'); hrEl.className='card-hr'; hrEl.id='hrbadge-'+key; hrEl.textContent=fmtHR(winHR);
+    var stallBadge=document.createElement('div'); stallBadge.id='stallbadge-'+key;
+    stallBadge.style.cssText='font-size:.72em;color:var(--red);white-space:nowrap;align-self:center;margin:0 4px;font-weight:700;';
+
+    var errEl=document.createElement('div');
+    errEl.id='errbadge-'+key;
+    errEl.style.cssText='font-size:.72em;color:var(--red);white-space:nowrap;align-self:center;margin:0';
+    var winErr=sd&&sd.errorRate!=null?sd.errorRate:null;
+    errEl.textContent=winErr!=null?'('+winErr.toFixed(2)+'%)':'';
+    var rmEl=document.createElement('button'); rmEl.dataset.ip=ip;
+    rmEl.style.cssText='background:transparent;border:none;color:var(--muted);font-size:.8rem;cursor:pointer;padding:0 0 0 2px;flex-shrink:0';
+    rmEl.textContent='✕';
+    rmEl.onclick=function(e){e.stopPropagation();mobRemoveMiner(this.dataset.ip);};
+    var clbl=document.createElement('label'); clbl.style.cssText='display:flex;align-items:center;cursor:pointer;margin-left:8px';
+    var swatch=document.createElement('div'); swatch.style.cssText='width:18px;height:18px;border-radius:50%;background:'+color+';border:2px solid rgba(255,255,255,0.3);flex-shrink:0';
+    var cpick=document.createElement('input'); cpick.type='color'; cpick.value=color.length===7?color:'#f7931a';
+    cpick.style.cssText='position:absolute;opacity:0;width:0;height:0';
+    cpick.dataset.ip=ip;
+    cpick.onfocus=function(){ refreshPaused=true; };
+    cpick.onchange=function(){ setMinerColor(this.dataset.ip,this.value); };
+    cpick.onblur=function(){ refreshPaused=false; refreshing=false; manualRefresh(); };
+    clbl.appendChild(swatch); clbl.appendChild(cpick);
+        var arEl=document.createElement('button');
+    arEl.id='mob-ar-'+key;
+    // Use session data from Windows unless user tapped recently (15s debounce)
+    var _tapAge = _mobARTapTime[ip] ? Date.now()-_mobARTapTime[ip] : 99999;
+    var _sdAR = (sessionData[ip]||{}).autoRestart||false;
+    var _localAR = mobGetARState(ip);
+    var arOn = _tapAge < 15000 ? (_localAR!==null?_localAR:_sdAR) : _sdAR;
+    // Keep local state in sync with session data after debounce
+    if(_tapAge >= 15000 && _localAR !== _sdAR){ _mobARState[ip]=_sdAR; }
+    arEl.textContent='A';
+    arEl.title='Auto-Restart';
+    arEl.style.cssText='background:transparent;border:1px solid '+(arOn?'var(--grn)':'var(--muted)')+';border-radius:3px;color:'+(arOn?'var(--grn)':'var(--muted)')+';font-size:.65rem;cursor:pointer;padding:0 2px;margin-left:1px;flex-shrink:0';
+    arEl.dataset.on=arOn?'1':'0';
+    arEl.onclick=function(){
+      var newVal=this.dataset.on!=='1';
+      this.dataset.on=newVal?'1':'0';
+      this.style.color=newVal?'var(--grn)':'var(--muted)';
+      this.style.borderColor=newVal?'var(--grn)':'var(--muted)';
+      this.textContent='A';
+      mobSetAutoRestart(ip, newVal);
+    };
+    var thermEl=document.createElement('button');
+    thermEl.textContent='🌡';
+    thermEl.title='Toggle temps-only view';
+    thermEl.style.cssText='background:transparent;border:none;font-size:.75rem;cursor:pointer;padding:0;flex-shrink:0;opacity:0.7';
+    thermEl.onclick=(function(cardEl, btn, mip){
+      return function(){
+        var on=cardEl.classList.toggle('temps-only');
+        btn.style.opacity=on?'1':'0.5';
+        if(on) _mobTempsOnly.add(mip); else _mobTempsOnly.delete(mip);
+      };
+    })(card, thermEl, ip);
+    thermEl.className='therm-btn';
+    hdr.appendChild(ipEl); hdr.appendChild(hrEl); hdr.appendChild(stallBadge); hdr.appendChild(errEl); hdr.appendChild(arEl); hdr.appendChild(thermEl); hdr.appendChild(rmEl); hdr.appendChild(clbl);
+    card.appendChild(hdr);
+
+    // Avg/share calculation
+    var avgStr='—';
+    // Can't calc from API alone, show last diff and target like windows
+    var lastDiff=d.bestSessionDiff?fmtD(parseDiffStr(d.bestSessionDiff)):'—';
+    // Avg/share from Windows session data
+    var avgStr=(sessionData[ip]&&sessionData[ip].avgShare)?sessionData[ip].avgShare:'—';
+    // Prefer session data from Windows for live stats
+    var sd=sessionData[ip]||{};
+    var winHR=sd.hashrate!=null?sd.hashrate:hr;
+    var winShares=sd.shares!=null?sd.shares:(d.sharesAccepted!=null?d.sharesAccepted:null);
+    var winRej=sd.rejected!=null?sd.rejected:(d.sharesRejected||0);
+    var winBest=sd.bestDiff!=null?sd.bestDiff:d.bestDiff;
+    var winSess=sd.sessionBest!=null?sd.sessionBest:d.bestSessionDiff;
+    var winUp=sd.uptime!=null?sd.uptime:d.uptimeSeconds;
+    var winStatus=sd.status!=null?sd.status:(isLive?'Live':'Offline');
+    var winIsLive=winStatus==='Live';
+    var winLast=sd.lastDiff!=null?fmtD(sd.lastDiff):'—';
+    var winEff=sd.efficiency!=null?sd.efficiency.toFixed(1)+' W/TH':'—';
+    var winTarget=sd.lastTarget!=null?fmtD(sd.lastTarget):'—';
+    var winRejPct=winShares>0?((winRej/winShares)*100).toFixed(2):'0.00';
+    var winRejStr=winShares>0?winRej+' ('+winRejPct+'%)':String(winRej);
+    var rows=[
+      ['All-Time Best',  fmtD(parseDiffStr(winBest)), 'orange'],
+      ['Session Best',   fmtD(parseDiffStr(winSess)), ''],
+      ['Status',         (winIsLive?'Live':'Offline')+(winUp?' ('+fmtUp(winUp)+')':''), winIsLive?'green':'red'],
+      ['Shares/Rej',    winShares!=null?winShares:'—', 'green'],
+      ['Frequency',      d.frequency?d.frequency+' MHz':'—', ''],
+      ['Avg/share',      avgStr, ''],
+      ['Voltage',        d.coreVoltage?d.coreVoltage+' mV':'—', ''],
+      ['Target',         winTarget, ''],
+      ['Fan Speed',      d.fanspeed!=null?Math.round(d.fanspeed)+'%':(d.autofanspeed?'Auto':'—'), ''],
+      ['Efficiency',     winEff, ''],
+    ];
+    var rowKeys=['atbest','sessbest','status','shares','freq','avg','volt','target','fan','eff'];
+    // Render stats in 2-column grid (pairs of rows)
+    var statsGrid=document.createElement('div');
+    statsGrid.className='mob-stats-grid';
+    statsGrid.style.cssText='display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--bdr)';
+    rows.forEach(function(row,ri){
+      var cell=document.createElement('div');
+      cell.style.cssText='padding:7px 12px;border-bottom:1px solid var(--muted2);border-right:'+(ri%2===0?'1px solid var(--muted2)':'none');
+      var rk=rowKeys[ri]||('r'+ri);
+      if(rk==='shares'){
+        cell.innerHTML='<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Shares/Rej</div>'+
+          '<div style="font-size:.82rem"><span class="stat-val green" id="sv-'+key+'-shares">'+row[1]+'</span>'+
+          '<span style="color:var(--muted)">/</span>'+
+          '<span class="stat-val red" id="sv-'+key+'-rej">'+winRejStr+'</span></div>';
+      } else {
+        cell.innerHTML='<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">'+row[0]+'</div>'+
+          '<div class="stat-val'+(row[2]?' '+row[2]:'')+'" id="sv-'+key+'-'+rk+'" style="font-size:.82rem">'+row[1]+'</div>';
+      }
+      statsGrid.appendChild(cell);
+    });
+    card.appendChild(statsGrid);
+
+    // Temps
+    // Use temps from Windows session data if available, fallback to API
+    var sd2=sessionData[ip]||{};
+    var temps=[];
+    if(sd2.temps&&sd2.temps.length){
+      temps=sd2.temps; // already formatted as [{label,val}]
+    } else {
+      if(d.temp>0) temps.push({label:'ASIC 1',val:d.temp,isVR:false});
+      for(var i=2;i<=8;i++){if(d['temp'+i]>0) temps.push({label:'ASIC '+i,val:d['temp'+i],isVR:false});}
+      if(d.vrTemp>0) temps.push({label:'VR',val:d.vrTemp,isVR:true});
+    }
+    // Normalize - add isVR if missing
+    temps=temps.map(function(t){return {label:t.label,val:t.val,isVR:t.isVR||(t.label==='VR')};});
+    if(temps.length){
+      var ts=document.createElement('div'); ts.className='temp-section';
+      ts.innerHTML='<div class="temp-sec-lbl">Temperatures</div>';
+      temps.forEach(function(t){
+        var tc=tempColor(t.val,t.isVR);
+        var pct=Math.min(100,(t.val/85)*100);
+        var tkey3=key+'_'+t.label.replace(/ /g,'_');
+      ts.innerHTML+='<div class="temp-row">'+
+          '<div class="temp-lbl">'+t.label+'</div>'+
+          '<div class="temp-bar-wrap"><div class="temp-bar" id="tbar-'+tkey3+'" style="width:'+pct+'%;background:'+tc+'"></div></div>'+
+          '<div class="temp-val" id="tval-'+tkey3+'" style="color:'+tc+'">'+t.val.toFixed(1)+'°</div>'+
+          '</div>';
+      });
+      card.appendChild(ts);
+    }
+
+    c.appendChild(card);
+    // Restore temps-only after append
+    if(_mobTempsOnly.has(ip)){ card.classList.add('temps-only'); thermEl.style.opacity='1'; }
+  });
+
+  // ── Block Odds Card ──────────────────────────────────────────────────────────
+  var oddsCard=document.createElement('div');
+  oddsCard.id='mob-odds-card';
+  oddsCard.className='card';
+  oddsCard.style.marginTop='14px';
+  c.appendChild(oddsCard);
+
+  // Daily fact card
+  var factCard=document.createElement('div');
+  factCard.id='mob-fact-card'; factCard.className='card';
+  factCard.style.cssText='margin-bottom:14px;display:none;';
+  c.appendChild(factCard);
+  updateOddsCard();
+
+  // ── All charts below all stats ────────────────────────────────────────────
+  // ── Difficulty Charts ──────────────────────────────────────────────────────
+  var diffHdr=document.createElement('div');
+  diffHdr.style.cssText='font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:4px 0 10px 0;padding-left:2px';
+  diffHdr.textContent='Difficulty Charts';
+  c.appendChild(diffHdr);
+
+  minerIPs.forEach(function(ip){
+    var color=getMinerColor(ip);
+    var chartCard=document.createElement('div'); chartCard.className='chart-card';
+    var chartHdr2=document.createElement('div'); chartHdr2.className='chart-card-hdr';
+    chartHdr2.innerHTML='<div class="chart-card-title">'+
+      '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+color+'"></span>'+
+      ' '+ip+' — Difficulty</div>'+
+      '<div class="chart-card-sub">Last 60 shares</div>';
+    chartCard.appendChild(chartHdr2);
+    var chartWrap=document.createElement('div'); chartWrap.className='chart-wrap';
+    var canvas=document.createElement('canvas'); canvas.className='diff-chart';
+    canvas.id='chart-'+ip.replace(/\./g,'_'); canvas.height=120;
+    chartWrap.appendChild(canvas);
+    chartCard.appendChild(chartWrap);
+    c.appendChild(chartCard);
+    setTimeout(function(){ drawDiffChart(ip, color); }, 80);
+  });
+
+  // ── Hashrate / Temp Charts ─────────────────────────────────────────────────
+  var hashHdr=document.createElement('div');
+  hashHdr.style.cssText='font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:14px 0 10px 0;padding-left:2px';
+  hashHdr.textContent='Hashrate / Temp Charts';
+  c.appendChild(hashHdr);
+
+  minerIPs.forEach(function(ip){
+    var color=getMinerColor(ip);
+    var hcard=document.createElement('div'); hcard.className='chart-card';
+    var hhdr=document.createElement('div'); hhdr.className='chart-card-hdr';
+    hhdr.innerHTML='<div class="chart-card-title">'+
+      '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+color+'"></span>'+
+      ' '+ip+' — Hashrate &amp; Temp</div>'+
+      '<div class="chart-card-sub">Last 200 samples</div>';
+    hcard.appendChild(hhdr);
+    var hwrap=document.createElement('div'); hwrap.className='chart-wrap';
+    var hcanvas=document.createElement('canvas'); hcanvas.className='diff-chart';
+    hcanvas.id='hchart-'+ip.replace(/\./g,'_'); hcanvas.height=140;
+    hwrap.appendChild(hcanvas);
+    hcard.appendChild(hwrap);
+    c.appendChild(hcard);
+    setTimeout(function(){ drawHashTempChart(ip, color); }, 100);
+  });
+
+  // Update header
+  document.getElementById('hdr-sub').textContent=minerIPs.length+' miner'+(minerIPs.length!==1?'s':'')+' • '+
+    new Date().toLocaleTimeString('en-US',{hour12:true,hour:'numeric',minute:'2-digit'});
+}
+
+
+function drawHashTempChart(ip, color){
+  var key=ip.replace(/\./g,'_');
+  var canvas=document.getElementById('hchart-'+key);
+  if(!canvas) return;
+  var sd=sessionData[ip]||{};
+  var data=(sd.hashSeries||[]);
+  var dpr=devicePixelRatio||1;
+  var W=canvas.offsetWidth*dpr||600;
+  var H=140*dpr;
+  canvas.width=W; canvas.height=H;
+  var ctx=canvas.getContext('2d');
+  ctx.fillStyle='#07111f'; ctx.fillRect(0,0,W,H);
+
+  if(!data.length){
+    ctx.fillStyle='#8ab4cc';
+    ctx.font=(11*dpr)+'px -apple-system,sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText('No hashrate data yet',W/2,H/2);
+    return;
+  }
+
+  var hrVals=data.map(function(p){return p.hr;}).filter(function(v){return v>0;});
+  if(!hrVals.length) return;
+  var hrMin=Math.min.apply(null,hrVals)*0.97, hrMax=Math.max.apply(null,hrVals)*1.03;
+  if(hrMin===hrMax){hrMin*=0.95;hrMax*=1.05;}
+
+  var tempVals=data.flatMap?data.flatMap(function(p){return (p.temps||[]).map(function(t){return t.val;});}):[];
+  var tMin=tempVals.length?Math.min.apply(null,tempVals)-3:40;
+  var tMax=tempVals.length?Math.max.apply(null,tempVals)+3:100;
+
+  var PL=44*dpr, PR=36*dpr, PT=10*dpr, PB=10*dpr;
+  var CW=W-PL-PR, CH=H-PT-PB;
+  var xOf=function(i){return PL+(i/(data.length-1||1))*CW;};
+  var yHr=function(v){return PT+CH-((v-hrMin)/(hrMax-hrMin))*CH;};
+  var yT=function(v){return PT+CH-((v-tMin)/(tMax-tMin))*CH;};
+
+  // Grid lines + Y labels
+  ctx.font=(9*dpr)+'px -apple-system,sans-serif';
+  [0,0.5,1].forEach(function(f){
+    var hrV=hrMin+f*(hrMax-hrMin), y=yHr(hrV);
+    ctx.strokeStyle='#1a3550'; ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(PL,y); ctx.lineTo(W-PR,y); ctx.stroke();
+    ctx.fillStyle='#8ab4cc'; ctx.textAlign='right';
+    ctx.fillText(hrV>=1000?(hrV/1000).toFixed(1)+'T':hrV.toFixed(0)+'G', PL-3*dpr, y+3*dpr);
+    var tV=tMin+f*(tMax-tMin);
+    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.textAlign='left';
+    ctx.fillText(tV.toFixed(0)+'°', W-PR+3*dpr, y+3*dpr);
+  });
+
+  // Hashrate fill + line
+  ctx.beginPath();
+  data.forEach(function(p,i){var x=xOf(i),y=yHr(p.hr);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+  ctx.lineTo(xOf(data.length-1),PT+CH); ctx.lineTo(xOf(0),PT+CH); ctx.closePath();
+  ctx.fillStyle=hexRgba(color,0.15); ctx.fill();
+  ctx.beginPath(); ctx.lineWidth=2*dpr; ctx.strokeStyle=color;
+  data.forEach(function(p,i){var x=xOf(i),y=yHr(p.hr);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+  ctx.stroke();
+
+  // Temp lines - colored by value like Windows
+  var tempLabels=data[0]&&data[0].temps?data[0].temps.map(function(t){return t.label;}):[];
+  tempLabels.forEach(function(lbl,li){
+    ctx.beginPath(); ctx.lineWidth=1.5*dpr;
+    var drawn=false;
+    data.forEach(function(p,i){
+      if(!p.temps||!p.temps[li]) return;
+      var tv=p.temps[li].val;
+      var isVR=lbl==='VR';
+      var tc=isVR?(tv>80?'#f45060':tv>70?'#f7931a':'#22d37a'):(tv>=70?'#f45060':tv>=65?'#f7931a':'#22d37a');
+      ctx.strokeStyle=tc;
+      if(!drawn){ctx.moveTo(xOf(i),yT(tv));drawn=true;}
+      else ctx.lineTo(xOf(i),yT(tv));
+    });
+    ctx.stroke();
+  });
+
+  // Border
+  ctx.strokeStyle='#152d4a'; ctx.lineWidth=1; ctx.strokeRect(PL,PT,CW,CH);
+}
+
+function drawDiffChart(ip, color){
+  var key=ip.replace(/\./g,'_');
+  var canvas=document.getElementById('chart-'+key);
+  if(!canvas) return;
+  // Use live session series from Windows (time ordered), fall back to alltime
+  var sd=sessionData[ip]||{};
+  var data=[];
+  if(sd.series&&sd.series.length){
+    data=sd.series.slice(-60); // already time ordered from Windows
+  } else {
+    var raw=(allTimeData[ip]||[]).slice();
+    raw.sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+    data=raw.slice(-60);
+  }
+  var dpr=devicePixelRatio||1;
+  var W=canvas.offsetWidth*dpr||600;
+  var H=130*dpr;
+  canvas.width=W; canvas.height=H;
+  var ctx=canvas.getContext('2d');
+  ctx.fillStyle='#07111f'; ctx.fillRect(0,0,W,H);
+
+  if(!data.length){
+    ctx.fillStyle='#8ab4cc';
+    ctx.font=(11*dpr)+'px -apple-system,sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText('No data yet — shares will appear here',W/2,H/2);
+    return;
+  }
+
+  var vals=data.map(function(p){return p.found;});
+  var mn=Math.min.apply(null,vals)*0.9;
+  var mx=Math.max.apply(null,vals)*1.1;
+  if(mn===mx){mn*=0.9;mx*=1.1;}
+
+  // Padding for Y labels on left
+  var PL=48*dpr, PR=6*dpr, PT=8*dpr, PB=8*dpr;
+  var CW=W-PL-PR, CH=H-PT-PB;
+  var xOf=function(i){return PL+(i/(data.length-1||1))*CW;};
+  var yOf=function(v){return PT+CH-((v-mn)/(mx-mn))*CH;};
+
+  // Y axis labels (3 levels: min, mid, max)
+  ctx.font=(10*dpr)+'px -apple-system,sans-serif';
+  ctx.textAlign='right';
+  var yLevels=[mn, mn+(mx-mn)*0.5, mx];
+  yLevels.forEach(function(v){
+    var y=yOf(v);
+    ctx.fillStyle='#1a3550';
+    ctx.beginPath(); ctx.moveTo(PL,y); ctx.lineTo(W-PR,y); ctx.stroke();
+    ctx.fillStyle='#8ab4cc';
+    ctx.fillText(fmtD(v), PL-4*dpr, y+4*dpr);
+  });
+
+  // Grid line style
+  ctx.strokeStyle='#1a3550'; ctx.lineWidth=0.5;
+  yLevels.forEach(function(v){
+    var y=yOf(v);
+    ctx.beginPath(); ctx.moveTo(PL,y); ctx.lineTo(W-PR,y); ctx.stroke();
+  });
+
+  // Fill under line
+  ctx.beginPath();
+  data.forEach(function(p,i){var x=xOf(i),y=yOf(p.found);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+  ctx.lineTo(xOf(data.length-1),PT+CH); ctx.lineTo(xOf(0),PT+CH); ctx.closePath();
+  ctx.fillStyle=hexRgba(color,0.15); ctx.fill();
+
+  // Line
+  ctx.beginPath(); ctx.lineWidth=2*dpr; ctx.strokeStyle=color;
+  data.forEach(function(p,i){var x=xOf(i),y=yOf(p.found);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+  ctx.stroke();
+
+  // Dots
+  var step=Math.max(1,Math.floor(data.length/12));
+  data.forEach(function(p,i){
+    if(i%step===0||i===data.length-1){
+      ctx.beginPath();
+      ctx.arc(xOf(i),yOf(p.found),3.5*dpr,0,Math.PI*2);
+      ctx.fillStyle=p.accepted?'#22d37a':color;
+      ctx.fill();
+    }
+  });
+}
+
+
+
+// ── ADD MINER TAB ─────────────────────────────────────────────────────────────
+function renderAddMiner(){
+  var c=document.getElementById('tab-addminer');
+  c.innerHTML='';
+
+  // Current miners list
+  var listCard=document.createElement('div'); listCard.className='card';
+  listCard.style.marginBottom='14px';
+  var listHdr=document.createElement('div');
+  listHdr.style.cssText='padding:12px 16px;border-bottom:1px solid var(--bdr);font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em';
+  listHdr.textContent='Current Miners';
+  listCard.appendChild(listHdr);
+  if(minerIPs.length){
+    minerIPs.forEach(function(ip){
+      var nameVal=getMinerName(ip);
+      var row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;padding:10px 16px;border-bottom:1px solid var(--muted2);gap:10px';
+      var color=getMinerColor(ip);
+      var label=document.createElement('div');
+      label.style.cssText='flex:1;font-size:.85rem;color:'+color;
+      label.textContent=nameVal?nameVal:ip;
+      if(nameVal){
+        var sub=document.createElement('div');
+        sub.style.cssText='font-size:.65rem;color:var(--muted);margin-top:1px';
+        sub.textContent=ip;
+        label.appendChild(sub);
+      }
+      // Rename button
+      var rnBtn=document.createElement('button');
+      rnBtn.style.cssText='background:transparent;border:1px solid var(--bdr);color:var(--muted);font-size:.68rem;padding:4px 10px;border-radius:6px;cursor:pointer;font-family:inherit';
+      rnBtn.textContent='✏ Rename';
+      rnBtn.dataset.ip=ip;
+      rnBtn.onclick=function(){
+        var cur=getMinerName(this.dataset.ip)||'';
+        var n=prompt('Name for '+this.dataset.ip+':',cur);
+        if(n===null) return;
+        minerNames[this.dataset.ip]=n.trim();
+        saveMinerNames();
+        minersBuilt=false;
+        renderAddMiner();
+        doRefresh();
+      };
+      // Remove button
+      var rmBtn=document.createElement('button');
+      rmBtn.style.cssText='background:transparent;border:1px solid var(--red);color:var(--red);font-size:.68rem;padding:4px 10px;border-radius:6px;cursor:pointer;font-family:inherit';
+      rmBtn.textContent='✕';
+      rmBtn.dataset.ip=ip;
+      rmBtn.onclick=function(){
+        mobRemoveMiner(this.dataset.ip);
+      };
+      row.appendChild(label); row.appendChild(rnBtn); row.appendChild(rmBtn);
+      listCard.appendChild(row);
+    });
+  } else {
+    var empty=document.createElement('div');
+    empty.style.cssText='padding:14px 16px;color:var(--muted);font-size:.8rem';
+    empty.textContent='No miners added yet.';
+    listCard.appendChild(empty);
+  }
+  c.appendChild(listCard);
+
+  // Add miner form - collapsible
+  var addCard=document.createElement('div'); addCard.className='card';
+  var _addOpen=localStorage.getItem('mob_addminer_open')==='1';
+  var addHdr=document.createElement('div');
+  addHdr.style.cssText='padding:12px 16px;border-bottom:1px solid var(--bdr);font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;display:flex;justify-content:space-between;align-items:center';
+  addHdr.innerHTML='Add Miner <span style="font-size:.7rem">'+(_addOpen?'&#9650;':'&#9660;')+'</span>';
+  addCard.appendChild(addHdr);
+  var addBody=document.createElement('div'); addBody.style.cssText='padding:14px 16px';
+  addBody.innerHTML=
+    '<div class="field-group"><label class="field-lbl">IP Address</label>'+
+    '<input id="mob-add-ip" class="field-input" type="text" inputmode="decimal" placeholder="e.g. 10.0.0.140"></div>'+
+    '<div class="field-group"><label class="field-lbl">Name (optional)</label>'+
+    '<input id="mob-add-name" class="field-input" type="text" placeholder="e.g. Living Room Miner"></div>'+
+    '<button onclick="mobAddMiner()" style="width:100%;background:var(--orange);border:none;color:#000;font-weight:700;padding:11px;border-radius:8px;font-size:.82rem;cursor:pointer;font-family:inherit">+ Add Miner</button>'+
+    '<div id="mob-add-msg" style="font-size:.7rem;color:var(--muted);min-height:16px;margin-top:8px;text-align:center"></div>';
+  var addBodyWrap=document.createElement('div');
+  addBodyWrap.style.display=_addOpen?'block':'none';
+  addBodyWrap.appendChild(addBody);
+  addCard.appendChild(addBodyWrap);
+  addHdr.onclick=function(){
+    var open=addBodyWrap.style.display==='none';
+    addBodyWrap.style.display=open?'block':'none';
+    addHdr.querySelector('span').innerHTML=open?'&#9650;':'&#9660;';
+    try{localStorage.setItem('mob_addminer_open',open?'1':'0');}catch(e){}
+  };
+  c.appendChild(addCard);
+
+  // Miner Settings
+  var msHdr=document.createElement('div');
+  msHdr.style.cssText='font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:4px 2px 10px 2px;margin-top:8px';
+  msHdr.textContent='Miner Settings';
+  c.appendChild(msHdr);
+  var msWrap=c;
+    minerIPs.forEach(function(ip){
+    var d=minerData[ip]||{};
+    var color=getMinerColor(ip);
+    var key=ip.replace(/\./g,'_');
+    var autoFan=d.autofanspeed!=null?d.autofanspeed:1;
+
+    var card=document.createElement('div'); card.className='card';
+    var _cOpen=localStorage.getItem('mob_mscard_open_'+key)==='1';
+    var cardHdrDiv=document.createElement('div');
+    cardHdrDiv.className='set-hdr';
+    cardHdrDiv.style.cssText='color:'+color+';cursor:pointer;display:flex;justify-content:space-between;align-items:center';
+    var _cName=getMinerName(ip)||ip;
+    cardHdrDiv.innerHTML='<span>'+_cName+'</span><span style="font-size:.65rem;color:var(--muted)">'+(_cOpen?'&#9650;':'&#9660;')+'</span>';
+    card.appendChild(cardHdrDiv);
+
+    var body=document.createElement('div'); body.className='set-body';
+    body.style.display=_cOpen?'block':'none';
+    cardHdrDiv.onclick=function(){
+      var open=body.style.display==='none';
+      body.style.display=open?'block':'none';
+      cardHdrDiv.querySelector('span:last-child').innerHTML=open?'&#9650;':'&#9660;';
+      try{localStorage.setItem('mob_mscard_open_'+key,open?'1':'0');}catch(e){}
+      if(open) settingsDirty=false;
+    };
+
+    // Info row
+    var info=document.createElement('div');
+    info.style.cssText='font-size:.75rem;color:var(--muted);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--bdr)';
+    info.innerHTML='Hashrate: <span style="color:var(--txt);font-weight:600">'+fmtHR(d.hashRate_1m||d.hashRate||0)+'</span>'+
+      ' &nbsp; Uptime: <span style="color:var(--txt);font-weight:600">'+fmtUp(d.uptimeSeconds)+'</span>';
+    body.appendChild(info);
+
+    // Performance section
+    var ps=document.createElement('div'); ps.className='set-sec'; ps.textContent='Performance'; body.appendChild(ps);
+
+    body.innerHTML+=
+      '<div class="field-group"><label class="field-lbl">Frequency (MHz)</label>'+
+      '<input class="field-input" type="number" id="m-freq-'+key+'" value="'+(d.frequency||'')+'" placeholder="e.g. 500" oninput=\'settingsDirty=true\'></div>'+
+      '<div class="field-group"><label class="field-lbl">Core Voltage (mV)</label>'+
+      '<input class="field-input" type="number" id="m-volt-'+key+'" value="'+(d.coreVoltage||'')+'" placeholder="e.g. 1200" oninput=\'settingsDirty=true\'></div>';
+
+    // Fan section
+    var fs=document.createElement('div'); fs.className='set-sec'; fs.textContent='Fan Control';
+    body.appendChild(fs);
+
+    body.innerHTML+=
+      '<div class="toggle-row"><span class="toggle-lbl">Auto Fan Speed</span>'+
+      '<input type="checkbox" class="toggle" id="m-autofan-'+key+'" '+(autoFan?'checked':'')+
+      ' onchange="toggleFan(\''+key+'\',this.checked)"></div>'+
+      '<div id="m-fanauto-'+key+'" style="display:'+(autoFan?'block':'none')+'">'+
+        '<div class="field-group"><label class="field-lbl">Target Temp (35–66°C)</label>'+
+        '<input class="field-input" type="number" id="m-temptgt-'+key+'" value="'+(d.temptarget||60)+'" min="35" max="66"></div>'+
+        '<div class="field-group"><label class="field-lbl">Min Fan Speed (0–99%)</label>'+
+        '<input class="field-input" type="number" id="m-minfan-'+key+'" oninput="settingsDirty=true" value="'+(d.minFanSpeed||35)+'" min="0" max="99"></div>'+
+      '</div>'+
+      '<div id="m-fanmanual-'+key+'" style="display:'+(autoFan?'none':'block')+'">'+
+        '<div class="field-group"><label class="field-lbl">Manual Fan Speed (0–100%)</label>'+
+        '<input class="field-input" type="number" id="m-fanspd-'+key+'" value="'+(d.manualFanSpeed||d.fanspeed||100)+'" min="0" max="100" oninput=\'settingsDirty=true\'></div>'+
+      '</div>'+
+      '<div class="btn-row">'+
+        '<button class="btn-save" onclick="mSave(\''+ip+'\')">✓ Save</button>'+
+        '<button class="btn-restart" onclick="mRestart(\''+ip+'\')">↻ Restart</button>'+
+      '</div>'+
+      '<div class="set-msg" id="m-msg-'+key+'"></div>';
+
+    card.appendChild(body);
+    msWrap.appendChild(card);
+  });
+}
+// ── SESSION TOP 10 TAB (best shares from current session via alltime) ─────────
+function renderTop10(){
+  var c=document.getElementById('tab-top10');
+  // Selector header
+  var existing=document.getElementById('top10-topn-bar');
+  if(!existing){
+    var bar=document.createElement('div');
+    bar.id='top10-topn-bar';
+    bar.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px';
+    bar.innerHTML='<span style="font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Show:</span>';
+    [10,25,50,100,250,500].forEach(function(n){
+      var btn=document.createElement('button');
+      btn.textContent=n;
+      btn.dataset.n=n;
+      btn.style.cssText='background:'+(mobTopN===n?'var(--orange)':'var(--surf2)')+';border:1px solid '+(mobTopN===n?'var(--orange)':'var(--bdr)')+';color:'+(mobTopN===n?'#000':'#e8f4ff')+';font-family:inherit;font-size:.72rem;padding:4px 12px;border-radius:6px;cursor:pointer';
+      btn.onclick=function(){mobTopN=parseInt(this.dataset.n);renderTop10();};
+      bar.appendChild(btn);
+    });
+    c.innerHTML='';
+    c.appendChild(bar);
+  } else {
+    // Update button styles
+    document.querySelectorAll('#top10-topn-bar button').forEach(function(btn){
+      var n=parseInt(btn.dataset.n);
+      btn.style.background=mobTopN===n?'var(--orange)':'var(--surf2)';
+      btn.style.borderColor=mobTopN===n?'var(--orange)':'var(--bdr)';
+      btn.style.color=mobTopN===n?'#000':'#e8f4ff';
+    });
+    // Remove old cards but keep bar
+    var children=Array.from(c.children);
+    children.forEach(function(ch){ if(ch.id!=='top10-topn-bar') c.removeChild(ch); });
+  }
+  var sessionIPs=Object.keys(sessionData).filter(function(ip){return ip&&ip!=='undefined';});
+  if(!sessionIPs.length){
+    var nd=document.createElement('div');nd.className='loading';
+    nd.textContent='No session data yet — open Windows app';
+    c.appendChild(nd); return;
+  }
+  sessionIPs.forEach(function(ip){
+    var color=getMinerColor(ip);
+    // Use live session top10 from Windows app
+    var entries=(sessionData[ip]&&sessionData[ip].top10)?sessionData[ip].top10.slice(0,mobTopN):[];
+    var card=document.createElement('div'); card.className='card';
+    card.innerHTML='<div class="top10-hdr" style="color:'+color+'">▸ '+(getMinerName(ip)||ip)+'</div>'+
+      (entries.length?entries.map(function(e,i){
+        return '<div class="top10-row">'+
+          '<div class="top10-rank">'+(i<3?MEDALS[i]:i+1)+'</div>'+
+          '<div class="top10-diff" style="color:'+color+'">'+fmtD(e.found)+'</div>'+
+          '<div class="top10-meta">'+
+            '<div class="'+(e.accepted?'acc':'')+'">'+( e.accepted?'✓':'✗')+'</div>'+
+            '<div>'+(e.ts?new Date(e.ts).toLocaleTimeString('en-US',{hour12:true,hour:'numeric',minute:'2-digit',second:'2-digit'}):'—')+'</div>'+
+          '</div></div>';
+      }).join(''):'<div class="top10-row"><div style="color:var(--muted);font-size:.78rem;padding:4px 0">No session data yet — open Windows app</div></div>');
+    c.appendChild(card);
+  });
+}
+
+// ── ALL-TIME TOP 10 TAB ───────────────────────────────────────────────────────
+var mobAllTimeN=10;
+function renderAllTime(){
+  var c=document.getElementById('tab-alltime');
+  var ips=Object.keys(allTimeData).filter(function(ip){return allTimeData[ip]&&allTimeData[ip].length;});
+  // Selector bar
+  var existBar=document.getElementById('alltime-topn-bar');
+  if(!existBar){
+    var bar2=document.createElement('div');
+    bar2.id='alltime-topn-bar';
+    bar2.style.cssText='display:flex;gap:8px;align-items:center;margin-bottom:12px';
+    bar2.innerHTML='<span style="font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Show:</span>';
+    [10,25,50,100,250,500].forEach(function(n){
+      var btn=document.createElement('button');
+      btn.textContent=n;btn.dataset.n=n;
+      btn.style.cssText='background:'+(mobAllTimeN===n?'var(--orange)':'var(--surf2)')+';border:1px solid '+(mobAllTimeN===n?'var(--orange)':'var(--bdr)')+';color:'+(mobAllTimeN===n?'#000':'#e8f4ff')+';font-family:inherit;font-size:.72rem;padding:4px 12px;border-radius:6px;cursor:pointer';
+      btn.onclick=function(){mobAllTimeN=parseInt(this.dataset.n);renderAllTime();};
+      bar2.appendChild(btn);
+    });
+    c.innerHTML='';c.appendChild(bar2);
+  } else {
+    document.querySelectorAll('#alltime-topn-bar button').forEach(function(btn){
+      var n=parseInt(btn.dataset.n);
+      btn.style.background=mobAllTimeN===n?'var(--orange)':'var(--surf2)';
+      btn.style.borderColor=mobAllTimeN===n?'var(--orange)':'var(--bdr)';
+      btn.style.color=mobAllTimeN===n?'#000':'#e8f4ff';
+    });
+    var ch2=Array.from(c.children);
+    ch2.forEach(function(ch){ if(ch.id!=='alltime-topn-bar') c.removeChild(ch); });
+  }
+  if(!ips.length){
+    var nd=document.createElement('div');nd.className='loading';nd.textContent='No all-time data yet';
+    c.appendChild(nd);return;
+  }
+  ips.forEach(function(ip){
+    var color=getMinerColor(ip);
+    var entries=(allTimeData[ip]||[]).slice(0,mobAllTimeN);
+    var total=(allTimeData[ip]||[]).length;
+    var card=document.createElement('div'); card.className='card';
+    // Summary bar
+    var summ='<div style="padding:8px 16px;border-bottom:1px solid var(--muted2);font-size:.72rem;color:var(--muted)">'+
+      'Best: <span style="color:'+color+';font-weight:700">'+fmtD(entries[0]?entries[0].found:0)+'</span>'+
+      ' &nbsp; Total recorded: <span style="color:var(--txt)">'+total+'</span></div>';
+    card.innerHTML='<div class="top10-hdr" style="color:'+color+'">▸ '+(getMinerName(ip)||ip)+'</div>'+summ+
+      entries.map(function(e,i){
+        return '<div class="top10-row">'+
+          '<div class="top10-rank">'+(i<3?MEDALS[i]:i+1)+'</div>'+
+          '<div class="top10-diff" style="color:'+color+'">'+fmtD(e.found)+'</div>'+
+          '<div class="top10-meta">'+
+            '<div class="'+(e.accepted||e.fromAxeOS?'acc':'')+'">'+
+              (e.fromAxeOS?'<span style="color:#38bdf8">AxeOS</span>':e.accepted?'✓':'✗')+'</div>'+
+            '<div>'+(e.ts?new Date(e.ts).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—')+'</div>'+
+          '</div></div>';
+      }).join('');
+    c.appendChild(card);
+  });
+}
+
+
+// POOL TAB
+async function renderPool(){
+  var c=document.getElementById('tab-pool');
+  c.innerHTML='';
+  if(!minerIPs.length){c.innerHTML='<div class="loading">No miners configured</div>';return;}
+  for(var pi=0;pi<minerIPs.length;pi++){
+    (function(ip){
+      var d=minerData[ip]||{};
+      var color=getMinerColor(ip);
+      var key=ip.replace(/[.]/g,'_');
+      var card=document.createElement('div'); card.className='card';
+      var hd=document.createElement('div'); hd.className='set-hdr'; hd.style.color=color; hd.textContent='> '+(getMinerName(ip)||ip);
+      card.appendChild(hd);
+      var bd=document.createElement('div'); bd.className='set-body';
+      var ss='font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--bdr);padding-bottom:5px;margin:4px 0 12px 0';
+      var ps=document.createElement('div');ps.style.cssText=ss;ps.textContent='Primary Pool';bd.appendChild(ps);
+      function addFld(id,lbl,val,type){
+        var fg=document.createElement('div');fg.className='field-group';
+        var fl=document.createElement('label');fl.className='field-lbl';fl.textContent=lbl;fg.appendChild(fl);
+        var fi=document.createElement('input');fi.className='field-input';fi.type=type||'text';fi.id=id;fi.value=(val!=null?val:'');fg.appendChild(fi);
+        bd.appendChild(fg);
+      }
+      function addSecMob(t){var s=document.createElement('div');s.style.cssText=ss;s.textContent=t;bd.appendChild(s);}
+
+      // Primary Pool
+      addFld('phost-'+key,'Stratum Host',d.stratumURL);
+      addFld('pport-'+key,'Stratum Port',d.stratumPort,'number');
+      addFld('puser-'+key,'Stratum User (BTC Address)',d.stratumUser);
+      addFld('ppass-'+key,'Stratum Password',d.stratumPassword);
+
+      // Primary Advanced Options
+      addSecMob('Primary Advanced Options');
+      // (primary adv follows)
+
+      // Suggested Difficulty
+      var sdFg=document.createElement('div');sdFg.className='field-group';
+      var sdLbl=document.createElement('label');sdLbl.className='field-lbl';sdLbl.textContent='Suggested Difficulty';sdFg.appendChild(sdLbl);
+      var sdInp=document.createElement('input');sdInp.className='field-input';sdInp.type='number';sdInp.id='sugdiff-'+key;sdInp.value=(d.stratumSuggestedDifficulty!=null?d.stratumSuggestedDifficulty:'');sdInp.placeholder='e.g. 4100';sdFg.appendChild(sdInp);
+      bd.appendChild(sdFg);
+
+      // Extranonce Subscribe toggle
+      var enRow=document.createElement('div');enRow.className='toggle-row';enRow.style.marginBottom='12px';
+      enRow.innerHTML='<span class="toggle-lbl">Enable Extranonce Subscribe</span><input type="checkbox" class="toggle" id="extranonce-'+key+'" '+(d.stratumExtranonceSubscribe?'checked':'')+'/>';
+      bd.appendChild(enRow);
+
+      // Decode Coinbase Tx toggle
+      var dcChecked=(d.decodeCoinbaseTx!=null?!!d.decodeCoinbaseTx:true);
+      var dcRow=document.createElement('div');dcRow.className='toggle-row';dcRow.style.marginBottom='14px';
+      dcRow.innerHTML='<span class="toggle-lbl">Decode Coinbase Tx</span><input type="checkbox" class="toggle" id="decodecb-'+key+'" '+(dcChecked?'checked':'')+'/>';
+      bd.appendChild(dcRow);
+
+      // Connection Security
+      var csLblEl=document.createElement('label');csLblEl.className='field-lbl';csLblEl.textContent='Connection Security';bd.appendChild(csLblEl);
+      var connSec=(d.stratumConnectionSecurity!=null?d.stratumConnectionSecurity:0);
+      var csDiv=document.createElement('div');csDiv.style.cssText='display:flex;flex-direction:column;gap:10px;margin-bottom:14px';
+      [['0','No TLS'],['1','TLS (System certificate)'],['2','TLS (Custom CA certificate)']].forEach(function(opt){
+        var rl=document.createElement('label');rl.style.cssText='display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--txt)';
+        var rb=document.createElement('input');rb.type='radio';rb.name='connsec-'+key;rb.value=opt[0];rb.checked=(String(connSec)===opt[0]);rb.style.cssText='accent-color:var(--grn);width:18px;height:18px;flex-shrink:0';
+        rl.appendChild(rb);rl.appendChild(document.createTextNode(opt[1]));csDiv.appendChild(rl);
+      });
+      bd.appendChild(csDiv);
+
+      var br=document.createElement('div'); br.className='btn-row';
+      var sv=document.createElement('button'); sv.className='btn-save'; sv.textContent='Save'; sv.dataset.ip=ip; sv.onclick=function(){poolSave(this.dataset.ip);};
+      var rs=document.createElement('button'); rs.className='btn-restart'; rs.textContent='Restart'; rs.dataset.ip=ip; rs.onclick=function(){poolRestart(this.dataset.ip);};
+      br.appendChild(sv); br.appendChild(rs); bd.appendChild(br);
+      var mg=document.createElement('div'); mg.className='set-msg'; mg.id='pmsg-'+key; bd.appendChild(mg);
+      card.appendChild(bd); c.appendChild(card);
+    })(minerIPs[pi]);
+  }
+}
+async function poolSave(ip){
+  var key=ip.replace(/[.]/g,'_');
+  var msg=document.getElementById('pmsg-'+key);
+  var phost=document.getElementById('phost-'+key).value.trim();
+  if(!phost){msg.style.color='var(--red)';msg.textContent='Stratum Host required.';return;}
+  var csEl2=document.querySelector('input[name="connsec-'+key+'"]:checked');
+  var payload={
+    stratumURL:phost,
+    stratumPort:parseInt(document.getElementById('pport-'+key).value)||3333,
+    stratumUser:document.getElementById('puser-'+key).value.trim(),
+    stratumPassword:document.getElementById('ppass-'+key).value,
+    fallbackStratumURL:document.getElementById('fbhost-'+key).value.trim(),
+    fallbackStratumPort:parseInt(document.getElementById('fbport-'+key).value)||3333,
+    fallbackStratumUser:document.getElementById('fbuser-'+key).value.trim(),
+    fallbackStratumPassword:document.getElementById('fbpass-'+key).value,
+    stratumSuggestedDifficulty:parseInt(document.getElementById('sugdiff-'+key).value)||0,
+    stratumExtranonceSubscribe:document.getElementById('extranonce-'+key).checked?1:0,
+    decodeCoinbaseTx:document.getElementById('decodecb-'+key).checked?1:0,
+    stratumConnectionSecurity:csEl2?parseInt(csEl2.value):0
+  };
+  msg.style.color='var(--muted)';msg.textContent='Saving...';
+  try{
+    var res=await fetch(SERVER+'/patch?ip='+encodeURIComponent(ip),{signal:AbortSignal.timeout(5000),headers:{'X-Body':JSON.stringify(payload)}});
+    if(res.ok){msg.style.color='var(--grn)';msg.textContent='Saved! Restart to apply.';}
+    else{msg.style.color='var(--red)';msg.textContent='Failed ('+res.status+')';}
+  }catch(e){msg.style.color='var(--red)';msg.textContent='Error: '+e.message;}
+  refreshPaused=false;
+}
+async function poolRestart(ip){
+  var key=ip.replace(/[.]/g,'_');
+  var msg=document.getElementById('pmsg-'+key);
+  msg.style.color='var(--muted)';msg.textContent='Restarting...';
+  try{
+    var res=await fetch(SERVER+'/restart?ip='+encodeURIComponent(ip),{signal:AbortSignal.timeout(6000)});
+    if(res.ok){msg.style.color='var(--grn)';msg.textContent='Restart sent!';}
+    else{msg.style.color='var(--red)';msg.textContent='Failed.';}
+  }catch(e){msg.style.color='var(--red)';msg.textContent='Error: '+e.message;}
+  refreshPaused=false;
+}
+// ── SETTINGS TAB ──────────────────────────────────────────────────────────────
+function renderSettings(){
+  var c=document.getElementById('tab-settings');
+  if(!minerIPs.length){c.innerHTML='<div id="mob-notif-wrap"></div><div class="loading">No miners configured</div>';return;}
+  c.innerHTML='<div id="mob-notif-wrap"></div>';
+
+  // Total bar at top of settings
+  if(minerIPs.length>1){
+    var _sTotalW=0; minerIPs.forEach(function(ip){var p=(sessionData[ip]||{}).power;if(p!=null)_sTotalW+=p;});
+    var _sPwrRate=parseFloat(localStorage.getItem('mob_power_rate')||'0');
+    var _sCostDay=_sTotalW>0&&_sPwrRate>0?(_sTotalW/1000)*24*_sPwrRate:0;
+    var _sCostStr=_sCostDay>0?'$'+_sCostDay.toFixed(2)+'/day':'';
+    var _sTotalHR=0; minerIPs.forEach(function(ip){var sd2=sessionData[ip]||{};_sTotalHR+=sd2.hashrate!=null?sd2.hashrate:0;});
+    var sumCard=document.createElement('div'); sumCard.className='card';
+    sumCard.style.marginBottom='14px';
+    sumCard.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;flex-wrap:wrap;gap:4px">'+
+      '<div style="font-size:1.05rem;font-weight:700;color:var(--muted)">'+(_sTotalW>0?_sTotalW.toFixed(1)+'W':'—W')+'</div>'+
+      (_sCostStr?'<div style="font-size:.85rem;font-weight:600;color:#f7931a">'+_sCostStr+'</div>':'')+
+      '<div style="font-size:1.05rem;font-weight:700;color:var(--grn)">'+(_sTotalHR>=1000?(_sTotalHR/1000).toFixed(2)+' TH/s':_sTotalHR.toFixed(1)+' GH/s')+'</div></div>';
+    c.appendChild(sumCard);
+  }
+
+  // Scripts button at top
+  if(_mobScView==='list'||_mobScView==='editor'){ renderMobScripts(); return; }
+  var scBtn=document.createElement('button');
+  scBtn.style.cssText='width:100%;background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);font-size:.85rem;font-weight:600;padding:11px 14px;border-radius:8px;cursor:pointer;text-align:left;margin-bottom:14px;display:flex;align-items:center;gap:8px';
+  scBtn.innerHTML='📜 <span style="flex:1">Scripts</span><span style="color:var(--muted);font-size:.75rem">'+_mobSc.length+' saved ›</span>';
+  scBtn.onclick=function(){_mobScView='list';mobLoadScripts().then(function(){renderSettings();}).catch(function(){renderSettings();});}; 
+  c.appendChild(scBtn);
+
+  // Hash Rain toggle
+  var hrCard=document.createElement('div');
+  hrCard.style.cssText='background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;padding:12px 14px;margin-bottom:14px;';
+  var hrRow=document.createElement('div');
+  hrRow.style.cssText='display:flex;align-items:center;justify-content:space-between;';
+  var hrLbl=document.createElement('div');
+  hrLbl.innerHTML='<span style="font-size:.85rem;font-weight:600">Hash Rain</span><span style="font-size:.7rem;color:var(--muted);display:block">Animated hashes behind miners tab</span>';
+  var hrToggle=document.createElement('input');
+  hrToggle.type='checkbox';
+  hrToggle.style.cssText='width:20px;height:20px;cursor:pointer;';
+  hrToggle.checked=localStorage.getItem('mob_hashrain')==='1';
+  hrToggle.onchange=function(){
+    var on=hrToggle.checked;
+    try{localStorage.setItem('mob_hashrain',on?'1':'0');}catch(e){}
+    if(on) _hrStart(); else _hrStop();
+  };
+  hrRow.appendChild(hrLbl); hrRow.appendChild(hrToggle);
+  hrCard.appendChild(hrRow);
+  // Color picker for hash color
+  var hrColorRow=document.createElement('div');
+  hrColorRow.style.cssText='display:flex;align-items:center;gap:10px;margin-top:10px;';
+  var hrColorLbl=document.createElement('span');
+  hrColorLbl.style.cssText='font-size:.75rem;color:var(--muted);';
+  hrColorLbl.textContent='Hash Color';
+  var hrColorPick=document.createElement('input');
+  hrColorPick.type='color';
+  hrColorPick.value=localStorage.getItem('mob_hashrain_color')||'#22d37a';
+  hrColorPick.style.cssText='width:36px;height:28px;border:none;background:none;cursor:pointer;border-radius:4px;';
+  hrColorPick.oninput=function(){
+    _hrColor=hrColorPick.value;
+    try{localStorage.setItem('mob_hashrain_color',_hrColor);}catch(e){}
+  };
+  hrColorRow.appendChild(hrColorLbl); hrColorRow.appendChild(hrColorPick);
+  hrCard.appendChild(hrColorRow);
+
+  // Background brightness slider
+  var hrBgRow=document.createElement('div');
+  hrBgRow.style.cssText='display:flex;align-items:center;gap:10px;margin-top:10px;';
+  var hrBgLbl=document.createElement('span');
+  hrBgLbl.style.cssText='font-size:.75rem;color:var(--muted);white-space:nowrap;';
+  hrBgLbl.textContent='Background';
+  var hrBgSlider=document.createElement('input');
+  hrBgSlider.type='range'; hrBgSlider.min='0.02'; hrBgSlider.max='1'; hrBgSlider.step='0.02';
+  hrBgSlider.value=localStorage.getItem('mob_hashrain_bgalpha')||'0.18';
+  hrBgSlider.style.cssText='flex:1;cursor:pointer;';
+  hrBgSlider.oninput=function(){
+    _hrBgAlpha=parseFloat(hrBgSlider.value);
+    try{localStorage.setItem('mob_hashrain_bgalpha',String(_hrBgAlpha));}catch(e){}
+  };
+  hrBgRow.appendChild(hrBgLbl); hrBgRow.appendChild(hrBgSlider);
+  hrCard.appendChild(hrBgRow);
+
+  // Share brightness slider
+  var hrShRow=document.createElement('div');
+  hrShRow.style.cssText='display:flex;align-items:center;gap:10px;margin-top:10px;';
+  var hrShLbl=document.createElement('span');
+  hrShLbl.style.cssText='font-size:.75rem;color:var(--muted);white-space:nowrap;';
+  hrShLbl.textContent='Share Flash';
+  var hrShSlider=document.createElement('input');
+  hrShSlider.type='range'; hrShSlider.min='0.1'; hrShSlider.max='1'; hrShSlider.step='0.05';
+  hrShSlider.value=localStorage.getItem('mob_hashrain_sharealpha')||'1.0';
+  hrShSlider.style.cssText='flex:1;cursor:pointer;';
+  hrShSlider.oninput=function(){
+    _hrShareAlpha=parseFloat(hrShSlider.value);
+    try{localStorage.setItem('mob_hashrain_sharealpha',String(_hrShareAlpha));}catch(e){}
+  };
+  hrShRow.appendChild(hrShLbl); hrShRow.appendChild(hrShSlider);
+  hrCard.appendChild(hrShRow);
+
+  c.appendChild(hrCard);
+
+  var themeBtn=document.createElement('button');
+  themeBtn.style.cssText='width:100%;background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);font-size:.85rem;font-weight:600;padding:10px 14px;border-radius:8px;cursor:pointer;margin-bottom:14px;';
+  themeBtn.textContent='Theme / BG Color';
+  themeBtn.onclick=function(){showThemePicker();};
+  c.appendChild(themeBtn);
+
+  // Electricity cost input
+  var costCard=document.createElement('div');
+  costCard.style.cssText='background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;padding:12px 14px;margin-bottom:14px;';
+  var costLabel=document.createElement('div');
+  costLabel.style.cssText='font-size:.72rem;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;';
+  costLabel.textContent='Electricity Cost';
+  costCard.appendChild(costLabel);
+  var costRow=document.createElement('div');
+  costRow.style.cssText='display:flex;align-items:center;gap:8px;';
+  var costPrefix=document.createElement('span');
+  costPrefix.style.cssText='color:var(--txt);font-size:.9rem;';
+  costPrefix.textContent='$';
+  var costInput=document.createElement('input');
+  costInput.type='number'; costInput.step='0.001'; costInput.min='0';
+  costInput.style.cssText='flex:1;background:var(--surf);border:1px solid var(--bdr);color:var(--txt);font-size:.9rem;padding:6px 10px;border-radius:6px;';
+  costInput.value=localStorage.getItem('mob_power_rate')||'';
+  costInput.placeholder='0.10';
+  var costSuffix=document.createElement('span');
+  costSuffix.style.cssText='color:var(--muted);font-size:.85rem;white-space:nowrap;';
+  costSuffix.textContent='/ kWh';
+  var costSaveBtn=document.createElement('button');
+  costSaveBtn.style.cssText='background:var(--grn);border:none;color:#000;font-weight:700;font-size:.8rem;padding:6px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;';
+  costSaveBtn.textContent='Save';
+  costSaveBtn.onclick=function(){
+    var rate=parseFloat(costInput.value)||0;
+    try{localStorage.setItem('mob_power_rate',String(rate));}catch(e){}
+    renderSettings();
+  };
+  costRow.appendChild(costPrefix);
+  costRow.appendChild(costInput);
+  costRow.appendChild(costSuffix);
+  costRow.appendChild(costSaveBtn);
+  costCard.appendChild(costRow);
+  c.appendChild(costCard);
+
+}
+
+function toggleFan(key, checked){
+  document.getElementById('m-fanauto-'+key).style.display=checked?'block':'none';
+  document.getElementById('m-fanmanual-'+key).style.display=checked?'none':'block';
+}
+
+async function mSave(ip){
+  refreshPaused=true; // pause refresh during save so card doesn't get wiped
+  var key=ip.replace(/\./g,'_');
+  var msg=document.getElementById('m-msg-'+key);
+  var nameEl=document.getElementById('mob-name-'+key);
+  var nameChanged=false;
+  if(nameEl){ 
+    var newName=nameEl.value.trim();
+    if(newName!==(minerNames[ip]||'')){ minerNames[ip]=newName; saveMinerNames(); nameChanged=true; }
+  }
+  // If only name changed (no freq/volt), just update name and refresh card
+  if(nameChanged && document.getElementById('m-freq-'+key) && isNaN(parseInt(document.getElementById('m-freq-'+key).value))){
+    msg.style.color='var(--grn)'; msg.textContent='Name saved!';
+    minersBuilt=false; doRefresh(); return;
+  }
+  var freq=parseInt(document.getElementById('m-freq-'+key).value);
+  var volt=parseInt(document.getElementById('m-volt-'+key).value);
+  if(isNaN(freq)||isNaN(volt)){msg.style.color='var(--red)';msg.textContent='Enter valid numbers.';refreshPaused=false;return;}
+  var autoFan=document.getElementById('m-autofan-'+key).checked?1:0;
+  var body={frequency:freq,coreVoltage:volt,overclockEnabled:1,autofanspeed:autoFan};
+  if(autoFan){
+    var tt=document.getElementById('m-temptgt-'+key);
+    var mf=document.getElementById('m-minfan-'+key);
+    if(tt) body.temptarget=parseInt(tt.value);
+    if(mf) body.minfanspeed=parseInt(mf.value);
+  } else {
+    var fs=document.getElementById('m-fanspd-'+key);
+    if(fs) body.fanspeed=parseInt(fs.value);
+  }
+  msg.style.color='var(--muted)'; msg.textContent='Saving…';
+  try{
+    var r=await fetch(SERVER+'/patch?ip='+encodeURIComponent(ip),{signal:AbortSignal.timeout(8000),headers:{'Content-Type':'application/json','X-Body':JSON.stringify(body)}});
+    if(r.ok){
+      msg.style.color='var(--grn)';msg.textContent='Saved! ✓';
+      settingsDirty=false; refreshPaused=false;
+      if(nameChanged){ minersBuilt=false; }
+    } else{msg.style.color='var(--red)';msg.textContent='Failed ('+r.status+')';refreshPaused=false;}
+  }catch(e){msg.style.color='var(--red)';msg.textContent='Error: '+e.message;}
+  refreshPaused=false;
+}
+
+async function mRestart(ip){
+  var key=ip.replace(/\./g,'_');
+  var msg=document.getElementById('m-msg-'+key);
+  msg.style.color='var(--muted)'; msg.textContent='Restarting…';
+  try{
+    var r=await fetch(SERVER+'/restart?ip='+encodeURIComponent(ip),{signal:AbortSignal.timeout(6000)});
+    if(r.ok){msg.style.color='var(--grn)';msg.textContent='Restart sent!';}
+    else{msg.style.color='var(--red)';msg.textContent='Failed.';}
+  }catch(e){msg.style.color='var(--red)';msg.textContent='Error: '+e.message;}
+  refreshPaused=false;
+}
+
+// ── REFRESH ───────────────────────────────────────────────────────────────────
+
+function mobAddMiner(){
+  var input=document.getElementById('mob-add-ip');
+  var nameInput=document.getElementById('mob-add-name');
+  var msg=document.getElementById('mob-add-msg');
+  var ip=(input.value||'').trim();
+  if(!ip){msg.style.color='var(--red)';msg.textContent='Enter an IP address.';return;}
+  if(minerIPs.indexOf(ip)>=0){msg.style.color='var(--muted)';msg.textContent='Already added.';return;}
+  minerIPs.push(ip);
+  if(nameInput&&nameInput.value.trim()){
+    minerNames[ip]=nameInput.value.trim();
+    saveMinerNames();
+    nameInput.value='';
+  }
+  input.value='';
+  msg.style.color='var(--grn)';msg.textContent='Added '+ip+'!';
+  renderAddMiner();
+  manualRefresh();
+}
+
+var _mobARState={};
+var _mobStallTs={};
+var _mobARTapTime={};
+var _mobARTapExpected={}; // expected value after tap, cleared when confirmed
+var _mobTempsOnly={
+  _data: (function(){try{return JSON.parse(localStorage.getItem('mob_tempsonly')||'[]');}catch(e){return [];}}()),
+  has:function(ip){return this._data.indexOf(ip)>=0;},
+  add:function(ip){if(!this.has(ip)){this._data.push(ip);this._save();}},
+  delete:function(ip){this._data=this._data.filter(function(x){return x!==ip;});this._save();},
+  _save:function(){try{localStorage.setItem('mob_tempsonly',JSON.stringify(this._data));}catch(e){}}
+};
+function mobGetARState(ip){
+  if(_mobARState[ip]!==undefined) return _mobARState[ip];
+  try{ var s=localStorage.getItem('mob_ar'); if(s){var d=JSON.parse(s);if(d[ip]!==undefined)return d[ip];} }catch(e){}
+  return null;
+}
+function mobSetAutoRestart(ip, val){
+  _mobARState[ip]=val;
+  try{ var s={}; try{s=JSON.parse(localStorage.getItem('mob_ar')||'{}')}catch(e){} s[ip]=val; localStorage.setItem('mob_ar',JSON.stringify(s)); }catch(e){}
+  fetch(SERVER+'/setautorestart',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ip:ip, autoRestart:val})
+  }).catch(function(){});
+}
+
+var _lastNotifTs=0;
+function showMobNotif(title,msg,type,ts){
+  var wrap=document.getElementById('mob-notif-wrap');
+  if(!wrap){wrap=document.createElement('div');wrap.id='mob-notif-wrap';var tm=document.getElementById('tab-miners');if(tm)tm.insertBefore(wrap,tm.firstChild);}
+  var now2=new Date(ts||Date.now()); var hh2=now2.getHours()%12||12; var mm2=String(now2.getMinutes()).padStart(2,'0'); var ampm2=now2.getHours()>=12?'PM':'AM';
+  var ts2=hh2+':'+mm2+' '+ampm2;
+  var n=document.createElement('div');n.className='mob-notif '+(type||'warn');
+  n.innerHTML='<div class="mob-notif-body"><div class="mob-notif-title">'+title+' <span style="font-size:.75em;opacity:.55;font-weight:400">'+ts2+'</span></div><div class="mob-notif-msg">'+msg+'</div></div><button class="mob-notif-x" onclick="this.parentNode.remove()">✕</button>';
+  wrap.insertBefore(n,wrap.firstChild);
+}
+
+var _mobLastBlockTs=0;
+function checkForBlockFound(arr){
+  arr.forEach(function(n){
+    if(n&&n.title&&n.title.indexOf('BLOCK')>=0&&n.ts>_mobLastBlockTs){
+      _mobLastBlockTs=n.ts;
+      var sub=document.getElementById('mob-block-sub');
+      if(sub) sub.textContent=n.msg||'A block was found!';
+      var banner=document.getElementById('mob-block-banner');
+      if(banner){ banner.classList.add('show'); setTimeout(function(){banner.classList.remove('show');},30000); }
+      try{
+        var ctx=new(window.AudioContext||window.webkitAudioContext)();
+        var osc=ctx.createOscillator(),gain=ctx.createGain();
+        osc.connect(gain);gain.connect(ctx.destination);
+        osc.frequency.setValueAtTime(880,ctx.currentTime);
+        osc.frequency.setValueAtTime(1100,ctx.currentTime+0.15);
+        osc.frequency.setValueAtTime(880,ctx.currentTime+0.3);
+        gain.gain.setValueAtTime(0.3,ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.6);
+        osc.start(ctx.currentTime);osc.stop(ctx.currentTime+0.6);
+      }catch(e){}
+    }
+  });
+}
+async function pollNotifications(){
+  try{
+    var r=await fetch(SERVER+'/notifications',{signal:AbortSignal.timeout(3000)});
+    if(!r.ok)return;
+    var arr=await r.json();
+    if(!Array.isArray(arr))return;
+    arr.forEach(function(n){if(n&&n.ts>_lastNotifTs){showMobNotif(n.title,n.msg,n.type,n.ts);_lastNotifTs=n.ts;}}); checkForBlockFound(arr);
+  }catch(e){}
+}
+setInterval(pollNotifications,5000);
+
+// Network hashrates per coin (in TH/s), fetched live
+var NET_HASHRATES = { btc: 970e6, bch: 3e6, dgb: 60e3, xec: 70e3, fb: 700e6 }; // DGB ~60PH/s, XEC ~70PH/s, FB ~700EH/s
+var BLOCK_TIMES   = { btc: 600,   bch: 600,  dgb: 15,   xec: 600, fb: 30 };
+var SELECTED_COIN = localStorage.getItem('mob_odds_coin')||'btc';
+var _lastNetHashFetch = 0;
+
+function fetchNetHash(){
+  if(Date.now()-_lastNetHashFetch < 300000) return; // fetch every 5 min
+  _lastNetHashFetch = Date.now();
+  ['btc','bch','dgb','xec'].forEach(function(coin){ // fb has no simple public API
+    fetch(SERVER+'/nethash?coin='+coin, {signal:AbortSignal.timeout(10000)})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d && d.hashrate){
+          var raw = parseFloat(d.hashrate);
+          if(!isNaN(raw) && raw > 0){
+            // blockchain.info returns GH/s, chainz nethashps returns H/s
+            // All three APIs return GH/s
+            var converted = raw / 1000; // GH/s to TH/s
+            // Sanity check - DGB/XEC should be > 1000 TH/s
+            if((coin==='dgb'||coin==='xec') && converted < 1000) return;
+            NET_HASHRATES[coin] = converted;
+            updateOddsCard();
+          }
+        }
+      }).catch(function(){});
+  });
+}
+fetchNetHash();
+setInterval(fetchNetHash, 300000);
+
+function updateOddsCard(){
+  var card=document.getElementById('mob-odds-card');
+  if(!card) return;
+
+  // Sum total hashrate from session data
+  var totalTHs=0;
+  minerIPs.forEach(function(ip){
+    var sd=sessionData[ip]||{};
+    var hr=sd.hashrate!=null?sd.hashrate:(minerData[ip]||{}).hashRate_1m||(minerData[ip]||{}).hashRate||0;
+    totalTHs+=hr;
+  });
+  totalTHs=totalTHs/1000; // GH/s to TH/s
+
+  var netHash=NET_HASHRATES[SELECTED_COIN]||NET_HASHRATES.btc;
+  var blockTime=BLOCK_TIMES[SELECTED_COIN]||600;
+  var blocksPerDay=86400/blockTime;
+
+  if(totalTHs<=0){
+    card.innerHTML='<div style="padding:14px 16px;color:var(--muted);font-size:.8rem;text-align:center">Mining odds — waiting for hashrate data</div>';
+    return;
+  }
+
+  var share=totalTHs/netHash;
+  var bph=share*(3600/blockTime);
+  var bpd=share*blocksPerDay;
+  var bpm=share*blocksPerDay*30;
+  var bpy=share*blocksPerDay*365;
+
+  function oddsStr(bpp){
+    if(bpp<=0) return '—';
+    var pct=(bpp*100);
+    var pctStr=pct>=1?pct.toFixed(2)+'%':pct.toFixed(7)+'%';
+    if(bpp>=1) return '<span style="color:var(--grn)">'+pctStr+'</span>';
+    var oneIn=Math.round(1/bpp);
+    return '1 in '+oneIn.toLocaleString()+' <span style="color:var(--muted);font-size:.72rem">('+pctStr+')</span>';
+  }
+
+  var coinNames={btc:'Bitcoin',bch:'Bitcoin Cash',dgb:'DigiByte',xec:'eCash',fb:'Fractal BTC'};
+  var coinLabel=coinNames[SELECTED_COIN]||'Bitcoin';
+
+  // Build coin selector buttons
+  var btnHtml='';
+  ['btc','bch','dgb','xec','fb'].forEach(function(c){
+    var active=c===SELECTED_COIN;
+    btnHtml+='<button onclick="SELECTED_COIN=\''+c+'\';localStorage.setItem(\'mob_odds_coin\',\''+c+'\');updateOddsCard();" '+
+      'style="padding:4px 10px;border-radius:6px;border:1px solid '+(active?'var(--grn)':'var(--bdr)')+
+      ';background:'+(active?'var(--grn)':'transparent')+';color:'+(active?'#000':'var(--muted)')+
+      ';font-size:.75rem;font-weight:'+(active?'700':'400')+';cursor:pointer">'+c.toUpperCase()+'</button>';
+  });
+
+  card.innerHTML=
+    '<div style="padding:10px 16px 8px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bdr);margin-bottom:10px">'+
+      '<span style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Block Odds · '+(totalTHs>=1000?(totalTHs/1000).toFixed(2)+' PH/s':totalTHs.toFixed(3)+' TH/s')+'</span>'+
+      '<div style="display:flex;gap:6px">'+btnHtml+'</div>'+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;padding:0 16px 14px 16px;font-size:.82rem;align-items:baseline">'+
+      '<span style="color:var(--muted)">Per hour</span><span style="color:var(--grn);font-family:monospace">'+oddsStr(bph)+'</span>'+
+      '<span style="color:var(--muted)">Per day</span><span style="color:var(--grn);font-family:monospace">'+oddsStr(bpd)+'</span>'+
+      '<span style="color:var(--muted)">Per month</span><span style="color:var(--grn);font-family:monospace">'+oddsStr(bpm)+'</span>'+
+      '<span style="color:var(--muted)">Per year</span><span style="color:var(--grn);font-family:monospace">'+oddsStr(bpy)+'</span>'+
+    '</div>';
+  updateFactCard();
+
+}
+
+// ── MOBILE SCRIPTS ──────────────────────────────────────────────────────────
+var _mobSc = (function(){ try{ var s=localStorage.getItem('mob_scripts'); return s?JSON.parse(s):[]; }catch(e){ return []; } })();
+(function(){
+  try{ var bg=localStorage.getItem('mob_bg_color'); if(bg) document.documentElement.style.setProperty('--bg',bg); }catch(e){}
+  try{ var sf=localStorage.getItem('mob_surf_color'); if(sf) document.documentElement.style.setProperty('--surf',sf); }catch(e){}
+  try{ var sf2=localStorage.getItem('mob_surf2_color'); if(sf2) document.documentElement.style.setProperty('--surf2',sf2); }catch(e){}
+})();
+var _mobScEdit = null;
+var _mobScView = ''; // '' = miner settings, 'list' = scripts list, 'editor' = script editor
+
+var MOB_SC_FIELDS = ['hashrate','hashrate_1m','hashrate_10m','hashrate_1h','bestDiff','bestSessionDiff',
+  'efficiency','asic1Temp','asic2Temp','asic3Temp','asic4Temp','asic5Temp','asic6Temp','asic7Temp','asic8Temp','vrTemp','fanRpm','fanMode','tempTarget','power','voltage','current',
+  'poolConnected','rejectRate','staleRate','poolTarget','uptime','online','frequency',
+  'hourOfDay','minuteOfDay'];
+var MOB_SC_OPS = ['>','>=','<','<=','==','!=','between','outside','is_true','is_false'];
+var MOB_SC_ACTIONS = ['restart','setFrequency','setCoreVoltage','setFanSpeed','setAutoFan',
+  'setTargetTemp','setOverclock','setPrimaryPool','switchFallbackPool',
+  'setWorkerName','setPassword','notification'];
+
+async function mobLoadScripts(){
+  try{
+    var r=await fetch(SERVER+'/scripts',{signal:AbortSignal.timeout(4000)});
+    if(r.ok){
+      var data=await r.json();
+      if(Array.isArray(data)&&data.length) _mobSc=data;
+    }
+  }catch(e){}
+  // fallback to localStorage
+  if(!_mobSc.length){
+    try{ var ls=localStorage.getItem('mob_scripts'); if(ls) _mobSc=JSON.parse(ls); }catch(e){}
+  }
+}
+
+async function mobSaveScripts(){
+  _mobScPushedAt=Date.now();
+  try{ localStorage.setItem('mob_scripts',JSON.stringify(_mobSc)); }catch(e){}
+  try{
+    await fetch(SERVER+'/setscripts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_mobSc),signal:AbortSignal.timeout(4000)});
+  }catch(e){}
+}
+
+function renderMobScripts(){
+  var c=document.getElementById('tab-settings');
+  c.innerHTML='';
+  // Header with back button
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;gap:10px;margin-bottom:14px';
+  if(_mobScView==='editor'){
+    var bk=document.createElement('button');
+    bk.style.cssText='background:transparent;border:1px solid var(--muted2);color:var(--muted);font-size:.8rem;padding:4px 10px;border-radius:5px;cursor:pointer;flex-shrink:0';
+    bk.textContent='← Back';
+    bk.onclick=function(){_mobScView='list';renderMobScripts();};
+    hdr.appendChild(bk);
+    var ttl=document.createElement('span');
+    ttl.style.cssText='font-weight:700;color:var(--txt);font-size:.95rem;flex:1';
+    ttl.textContent=_mobScEdit.name||'Edit Script';
+    hdr.appendChild(ttl);
+    var sv=document.createElement('button');
+    sv.style.cssText='background:var(--grn);border:none;color:#000;font-weight:700;font-size:.78rem;padding:5px 14px;border-radius:5px;cursor:pointer';
+    sv.textContent='Save';
+    sv.onclick=function(){mobSaveScript();};
+    hdr.appendChild(sv);
+  } else {
+    var bkSet=document.createElement('button');
+    bkSet.style.cssText='background:transparent;border:1px solid var(--muted2);color:var(--muted);font-size:.8rem;padding:4px 10px;border-radius:5px;cursor:pointer;flex-shrink:0';
+    bkSet.textContent='← Settings';
+    bkSet.onclick=function(){_mobScView='';settingsDirty=false;document.getElementById('tab-settings').innerHTML='';renderSettings();};
+    hdr.appendChild(bkSet);
+    var ttl2=document.createElement('span');
+    ttl2.style.cssText='font-weight:700;color:var(--txt);font-size:.95rem;flex:1';
+    ttl2.textContent='Scripts';
+    hdr.appendChild(ttl2);
+    var nb=document.createElement('button');
+    nb.style.cssText='background:var(--grn);border:none;color:#000;font-weight:700;font-size:.78rem;padding:5px 12px;border-radius:5px;cursor:pointer';
+    nb.textContent='+ New';
+    nb.onclick=function(){mobNewScript();};
+    hdr.appendChild(nb);
+  }
+  c.appendChild(hdr);
+
+  if(_mobScView==='list'){
+    mobRenderScList(c);
+  } else {
+    mobBuildEditor(c);
+  }
+}
+
+function mobRenderScList(c){
+  _mobSc.sort(function(a,b){return String(a.id).localeCompare(String(b.id));});
+  if(!_mobSc.length){
+    var em=document.createElement('div');
+    em.style.cssText='color:var(--muted);text-align:center;padding:30px 0;font-size:.85rem';
+    em.textContent='No scripts yet. Tap + New to create one.';
+    c.appendChild(em); return;
+  }
+  _mobSc.forEach(function(sc,i){
+    var card=document.createElement('div'); card.className='mob-sc-card';
+    var info=document.createElement('div'); info.style.flex='1';
+    var nm=document.createElement('div'); nm.className='mob-sc-name'; nm.textContent=sc.name||'Unnamed';
+    var sb=document.createElement('div'); sb.className='mob-sc-sub';
+    sb.textContent=(sc.conditions||[]).length+' cond · '+(sc.actions||[]).length+' action(s)';
+    info.appendChild(nm); info.appendChild(sb);
+    var tog=document.createElement('button'); tog.className='mob-sc-tog '+(sc.enabled?'on':'off'); tog.dataset.scid=sc.id;
+    tog.onclick=(function(s){return function(e){e.stopPropagation();s.enabled=!s.enabled;s.updatedAt=Date.now();this.className='mob-sc-tog '+(s.enabled?'on':'off');mobSaveScripts();};})(sc);
+    var eb=document.createElement('button');
+    eb.style.cssText='background:transparent;border:1px solid var(--muted2);color:var(--muted);font-size:.73rem;padding:3px 9px;border-radius:5px;cursor:pointer;margin-left:5px';
+    eb.textContent='Edit'; eb.onclick=(function(s){return function(){mobOpenEditor(s);};})(sc);
+    var db=document.createElement('button');
+    db.style.cssText='background:transparent;border:1px solid var(--red);color:var(--red);font-size:.73rem;padding:3px 9px;border-radius:5px;cursor:pointer;margin-left:4px';
+    db.textContent='Del'; db.onclick=(function(idx){return function(){if(confirm('Delete?')){_mobSc.splice(idx,1);mobSaveScripts();renderMobScripts();}};})(i);
+    card.appendChild(info); card.appendChild(tog); card.appendChild(eb); card.appendChild(db);
+    c.appendChild(card);
+  });
+}
+
+function mobNewScript(){
+  mobOpenEditor({id:'sc_'+Date.now(),name:'New Script',enabled:true,miners:'all',duration:0,cooldown:300,conditions:[],actions:[],elseActions:[]});
+}
+
+function mobOpenEditor(sc){
+  _mobScEdit=JSON.parse(JSON.stringify(sc));
+  _mobScView='editor';
+  renderMobScripts();
+}
+
+function mobBuildEditor(c){
+  var sc=_mobScEdit;
+  // Basic settings
+  var top=document.createElement('div'); top.className='mob-sc-sec';
+  top.innerHTML='<div class="mob-sc-sec-t">Script Settings</div>';
+  var nf=document.createElement('div'); nf.className='mob-sc-fld';
+  nf.innerHTML='<div class="mob-sc-lbl">Name</div>';
+  var ni=document.createElement('input'); ni.className='mob-sc-inp'; ni.value=sc.name||'';
+  ni.oninput=function(){sc.name=this.value;};
+  nf.appendChild(ni); top.appendChild(nf);
+  // Enabled
+  var er=document.createElement('div'); er.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:9px';
+  var el=document.createElement('span'); el.style.cssText='font-size:.83rem;color:var(--txt)'; el.textContent='Enabled';
+  var et=document.createElement('button'); et.className='mob-sc-tog '+(sc.enabled?'on':'off');
+  et.onclick=function(){sc.enabled=!sc.enabled;this.className='mob-sc-tog '+(sc.enabled?'on':'off');};
+  er.appendChild(el); er.appendChild(et); top.appendChild(er);
+  // Applies to - use IP instead of internal ID
+  var mf=document.createElement('div'); mf.className='mob-sc-fld';
+  mf.innerHTML='<div class="mob-sc-lbl">Applies To</div>';
+  var ms=document.createElement('select'); ms.className='mob-sc-sel';
+  var ao=document.createElement('option'); ao.value='all'; ao.textContent='All Miners'; ms.appendChild(ao);
+  minerIPs.forEach(function(ip){
+    var o=document.createElement('option'); o.value=ip; o.textContent=getMinerName(ip)||ip;
+    ms.appendChild(o);
+  });
+  // sc.miners could be 'all', an IP, or an internal ID - normalize to IP
+  var minersVal=sc.miners||'all';
+  if(minersVal!=='all'&&minerIPs.indexOf(minersVal)<0){
+    // It's an internal ID from Windows - find matching IP via session data
+    var matchedIP=minerIPs.find(function(ip){
+      var sd=sessionData[ip]||{};
+      return false; // session data doesn't have miner ID
+    });
+    // Try matching by index position
+    var idNum=parseInt(minersVal);
+    if(!isNaN(idNum)&&minerIPs[idNum]) minersVal=minerIPs[idNum];
+  }
+  ms.value=minersVal;
+  // Also update sc.miners to use IP going forward
+  if(minersVal!==sc.miners) sc.miners=minersVal;
+  ms.onchange=function(){sc.miners=this.value;};
+  mf.appendChild(ms); top.appendChild(mf);
+  // Duration + Cooldown
+  var dc=document.createElement('div'); dc.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px';
+  [['duration','Duration (sec)'],['cooldown','Cooldown (sec)']].forEach(function(p){
+    var df=document.createElement('div'); df.className='mob-sc-fld';
+    df.innerHTML='<div class="mob-sc-lbl">'+p[1]+'</div>';
+    var di=document.createElement('input'); di.className='mob-sc-inp'; di.type='number'; di.min=0; di.value=sc[p[0]]||0;
+    di.oninput=(function(k){return function(){sc[k]=parseInt(this.value)||0;};})(p[0]);
+    df.appendChild(di); dc.appendChild(df);
+  });
+  top.appendChild(dc); c.appendChild(top);
+  // Conditions
+  var cs=document.createElement('div'); cs.className='mob-sc-sec';
+  cs.innerHTML='<div class="mob-sc-sec-t">Conditions (ALL must be true)</div>';
+  (sc.conditions||[]).forEach(function(cond,ci){cs.appendChild(mobMkCrow(cond,ci));});
+  var ac=document.createElement('button'); ac.className='mob-sc-add'; ac.textContent='+ Add Condition';
+  ac.onclick=function(){sc.conditions.push({field:'hashrate',op:'<',v1:'0',v2:''});renderMobScripts();};
+  cs.appendChild(ac); c.appendChild(cs);
+  c.appendChild(mobMkActionSec('Actions','actions'));
+  c.appendChild(mobMkActionSec('Else Actions (optional)','elseActions'));
+}
+
+function mobMkCrow(cond,ci){
+  var row=document.createElement('div'); row.className='mob-sc-crow';
+  var fs=document.createElement('select'); fs.className='mob-sc-sel'; fs.style.flex='1';
+  MOB_SC_FIELDS.forEach(function(f){var o=document.createElement('option');o.value=f;o.textContent=f;if(f===cond.field)o.selected=true;fs.appendChild(o);});
+  fs.onchange=function(){cond.field=this.value;};
+  var os=document.createElement('select'); os.className='mob-sc-sel'; os.style.width='80px';
+  MOB_SC_OPS.forEach(function(op){var o=document.createElement('option');o.value=op;o.textContent=op;if(op===cond.op)o.selected=true;os.appendChild(o);});
+  os.onchange=function(){cond.op=this.value;renderMobScripts();};
+  if(cond.field==='hourOfDay'||cond.field==='minuteOfDay'){
+    var now2=new Date();
+    var hh3=now2.getHours()%12||12; var mm3=String(now2.getMinutes()).padStart(2,'0'); var ap2=now2.getHours()>=12?'PM':'AM';
+    var hint2=document.createElement('span');
+    hint2.style.cssText='font-size:.68rem;color:var(--muted);white-space:nowrap';
+    hint2.textContent=cond.field==='hourOfDay'?'now='+now2.getHours()+'('+hh3+ap2+')':'now='+(now2.getHours()*60+now2.getMinutes())+'('+hh3+':'+mm3+' '+ap2+')';
+    row.appendChild(hint2);
+  }
+  row.appendChild(fs); row.appendChild(os);
+  if(cond.op!=='is_true'&&cond.op!=='is_false'){
+    var v1=document.createElement('input'); v1.className='mob-sc-inp'; v1.style.width='65px'; v1.value=cond.v1||''; v1.placeholder='val';
+    v1.oninput=function(){cond.v1=this.value;}; row.appendChild(v1);
+  }
+  if(cond.op==='between'||cond.op==='outside'){
+    var v2=document.createElement('input'); v2.className='mob-sc-inp'; v2.style.width='65px'; v2.value=cond.v2||''; v2.placeholder='to';
+    v2.oninput=function(){cond.v2=this.value;}; row.appendChild(v2);
+  }
+  var rm=document.createElement('button'); rm.className='mob-sc-rm'; rm.innerHTML='&#x2715;';
+  rm.onclick=(function(i){return function(){_mobScEdit.conditions.splice(i,1);renderMobScripts();};})(ci);
+  row.appendChild(rm); return row;
+}
+
+function mobMkActionSec(title,key){
+  var sec=document.createElement('div'); sec.className='mob-sc-sec';
+  sec.innerHTML='<div class="mob-sc-sec-t">'+title+'</div>';
+  (_mobScEdit[key]||[]).forEach(function(a,ai){sec.appendChild(mobMkArow(a,ai,key));});
+  var ab=document.createElement('button'); ab.className='mob-sc-add'; ab.textContent='+ Add Action';
+  ab.onclick=function(){if(!_mobScEdit[key])_mobScEdit[key]=[];_mobScEdit[key].push({type:'restart',value:''});renderMobScripts();};
+  sec.appendChild(ab); return sec;
+}
+
+function mobMkArow(a,ai,key){
+  var row=document.createElement('div'); row.className='mob-sc-arow';
+  var ts=document.createElement('select'); ts.className='mob-sc-sel'; ts.style.flex='1';
+  MOB_SC_ACTIONS.forEach(function(t){var o=document.createElement('option');o.value=t;o.textContent=t;if(t===a.type)o.selected=true;ts.appendChild(o);});
+  ts.onchange=function(){a.type=this.value;renderMobScripts();};
+  row.appendChild(ts);
+  if(a.type!=='restart'){
+    var vi=document.createElement('input'); vi.className='mob-sc-inp'; vi.style.flex='1'; vi.value=a.value||'';
+    if(a.type==='setPrimaryPool'||a.type==='switchFallbackPool') vi.placeholder='host:port';
+    else if(a.type==='setAutoFan') vi.placeholder='true / false';
+    else if(a.type==='setOverclock') vi.placeholder='freq/voltage';
+    else if(a.type==='notification') vi.placeholder='message';
+    else vi.placeholder='value';
+    vi.oninput=function(){a.value=this.value;}; row.appendChild(vi);
+  }
+  var rm=document.createElement('button'); rm.className='mob-sc-rm'; rm.innerHTML='&#x2715;';
+  rm.onclick=(function(k,i){return function(){_mobScEdit[k].splice(i,1);renderMobScripts();};})(key,ai);
+  row.appendChild(rm); return row;
+}
+
+function mobSaveScript(){
+  var sc=_mobScEdit;
+  if(!sc.name||!sc.name.trim()){ alert('Please enter a script name.'); return; }
+  sc.updatedAt=Date.now(); // stamp with current time
+  var i=_mobSc.findIndex(function(s){return s.id===sc.id;});
+  if(i>=0) _mobSc[i]=sc; else _mobSc.push(sc);
+  mobSaveScripts();
+  _mobScView='list';
+  renderMobScripts();
+}
+
+function getMinerName(ip){
+  try{ var n=JSON.parse(localStorage.getItem('mob_names')||'{}'); return n[ip]||''; }catch(e){ return ''; }
+}
+
+// Poll for script changes from Windows every 5s
+setInterval(function(){
+  fetch(SERVER+'/getscripts',{signal:AbortSignal.timeout(3000)}).then(function(r){return r.json();}).then(function(d){
+    if(!d||!Array.isArray(d)) return;
+    var changed=false;
+    d.forEach(function(ss){
+      var i=_mobSc.findIndex(function(s){return s.id===ss.id;});
+      if(i<0){ _mobSc.push(ss); changed=true; }
+      else if(!ss.updatedAt||!_mobSc[i].updatedAt||ss.updatedAt>_mobSc[i].updatedAt){ _mobSc[i]=ss; changed=true; }
+    });
+    if(changed){
+      try{ localStorage.setItem('mob_scripts',JSON.stringify(_mobSc)); }catch(e){}
+      if(activeTab==='settings'&&_mobScView==='list') renderMobScripts();
+    }
+  }).catch(function(){});
+},5000);
+// Poll /scripts every 3s - Windows pushes every 5s
+setInterval(function(){
+  fetch(SERVER+'/scripts',{signal:AbortSignal.timeout(2000)}).then(function(r){
+    if(!r.ok) return null; return r.json();
+  }).then(function(d){
+    if(!d||!Array.isArray(d)||!d.length) return;
+    if(JSON.stringify(d)===JSON.stringify(_mobSc)) return;
+    _mobSc=d;
+    try{ localStorage.setItem('mob_scripts',JSON.stringify(_mobSc)); }catch(e){}
+    // Update toggle buttons in-place
+    _mobSc.forEach(function(sc){
+      var tog=document.querySelector('[data-scid="'+sc.id+'"]');
+      if(tog){ tog.className='mob-sc-tog '+(sc.enabled?'on':'off'); }
+    });
+    if(activeTab==='settings'&&_mobScView==='list') renderMobScripts();
+  }).catch(function(){});
+},3000);
+
+function showThemePicker(){
+  var root=document.documentElement;
+  function getCss(v){ return (getComputedStyle(root).getPropertyValue(v).trim()||'').replace(/ /g,''); }
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;overflow-y:auto;';
+  var box=document.createElement('div');
+  box.style.cssText='background:var(--surf);border-radius:12px;padding:20px;width:300px;max-width:93vw;margin:20px auto;';
+
+  var title=document.createElement('div');
+  title.style.cssText='font-weight:700;color:var(--txt);margin-bottom:16px;font-size:1rem;';
+  title.textContent='Theme Colors';
+  box.appendChild(title);
+
+  function makeRow(label, cssVar, storageKey, defaultColor){
+    var cur=(getCss(cssVar)||defaultColor);
+    var row=document.createElement('div');
+    row.style.cssText='margin-bottom:16px;';
+    var lbl=document.createElement('div');
+    lbl.style.cssText='font-size:.8rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;';
+    lbl.textContent=label;
+    row.appendChild(lbl);
+    var pk=document.createElement('input');
+    pk.type='color'; pk.value=cur; pk.dataset.cssVar=cssVar; pk.dataset.storageKey=storageKey;
+    pk.style.cssText='width:100%;height:48px;border:none;border-radius:8px;cursor:pointer;padding:0;display:block;';
+    row.appendChild(pk);
+    var sw=document.createElement('div');
+    sw.style.cssText='display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;';
+    var presetColors;
+    if(cssVar==='--bg') presetColors=['#000000','#0a0a0a','#07111f','#0d1117','#111827','#0f0f23','#0a1628','#1a1a2e','#1c1c1e','#0d1b2a','#1a0a0a','#0a1a0a'];
+    else if(cssVar==='--surf') presetColors=['#000000','#0d0d0d','#111111','#1a1a1a','#0b1929','#161b22','#1c1c1e','#0f2035','#1a1a2e','#112240','#1a0000','#001a00'];
+    else presetColors=['#000000','#111111','#1a1a1a','#222222','#2d2d2d','#0f2035','#1a1a2e','#1f2937','#21262d','#162032','#1e0000','#001e00'];
+    presetColors.forEach(function(c){
+      var s=document.createElement('div');
+      s.style.cssText='width:30px;height:30px;border-radius:5px;background:'+c+';border:2px solid var(--bdr);cursor:pointer;flex-shrink:0;';
+      s.onclick=function(){pk.value=c;};
+      sw.appendChild(s);
+    });
+    row.appendChild(sw);
+    return row;
+  }
+
+  box.appendChild(makeRow('Background','--bg','mob_bg_color','#07111f'));
+  box.appendChild(makeRow('Cards','--surf','mob_surf_color','#0b1929'));
+  box.appendChild(makeRow('Secondary / Inputs','--surf2','mob_surf2_color','#0f2035'));
+
+  var btnRow=document.createElement('div');
+  btnRow.style.cssText='display:flex;gap:10px;margin-top:8px;';
+  var cancelBtn=document.createElement('button');
+  cancelBtn.style.cssText='flex:1;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted);padding:10px;border-radius:6px;cursor:pointer;font-size:.85rem;';
+  cancelBtn.textContent='Cancel';
+  cancelBtn.onclick=function(){ov.remove();};
+  var applyBtn=document.createElement('button');
+  applyBtn.style.cssText='flex:1;background:var(--grn);border:none;color:#000;font-weight:700;padding:10px;border-radius:6px;cursor:pointer;font-size:.85rem;';
+  applyBtn.textContent='Apply';
+  applyBtn.onclick=function(){
+    var pickers=box.querySelectorAll('input[type=color]');
+    pickers.forEach(function(pk){
+      root.style.setProperty(pk.dataset.cssVar, pk.value);
+      try{localStorage.setItem(pk.dataset.storageKey, pk.value);}catch(e){}
+    });
+    ov.remove();
+    renderSettings();
+  };
+  var resetBtn=document.createElement('button');
+  resetBtn.style.cssText='width:100%;background:transparent;border:1px solid var(--bdr);color:var(--muted);padding:8px;border-radius:6px;cursor:pointer;font-size:.8rem;margin-top:8px;';
+  resetBtn.textContent='Reset to Default';
+  resetBtn.onclick=function(){
+    var defaults={'--bg':'#07111f','--surf':'#0b1929','--surf2':'#0f2035'};
+    var keys={'--bg':'mob_bg_color','--surf':'mob_surf_color','--surf2':'mob_surf2_color'};
+    Object.keys(defaults).forEach(function(v){
+      root.style.setProperty(v,defaults[v]);
+      try{localStorage.removeItem(keys[v]);}catch(e){}
+    });
+    ov.remove();
+    renderSettings();
+  };
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(applyBtn);
+  box.appendChild(btnRow);
+  box.appendChild(resetBtn);
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+// Daily mining fact card
+var MINING_FACTS = [
+  {label:'picking a perfect March Madness bracket', odds:1/9200000000000000000},
+  {label:'winning back-to-back major lottery jackpots', odds:1/90000000000000000},
+  {label:'getting hit by satellite debris falling from orbit', odds:1/21000000000},
+  {label:'being struck by lightning twice in one year', odds:1/9000000000},
+  {label:'flipping heads 30 times in a row', odds:1/1073741824},
+  {label:'contracting rabies in the US this year', odds:1/1000000000},
+  {label:'being elected Pope as a Catholic layperson', odds:1/1000000000},
+  {label:'winning a Mega Millions jackpot', odds:1/302000000},
+  {label:'winning a Powerball jackpot', odds:1/292000000},
+  {label:'having a meteorite land on your property in a year', odds:1/182000000},
+  {label:'flipping heads 27 times in a row', odds:1/134217728},
+  {label:'being killed by a vending machine tipping over', odds:1/100000000},
+  {label:'dying in a sinkhole collapse this year', odds:1/100000000},
+  {label:'dying from a stingray injury', odds:1/100000000},
+  {label:'dying from a volcanic eruption in the US this year', odds:1/80000000},
+  {label:'rolling the same number on a die 10 times in a row', odds:1/60466176},
+  {label:'dying from a falling coconut in your lifetime', odds:1/50000000},
+  {label:'dying from a jellyfish sting', odds:1/40000000},
+  {label:'dying from a snakebite in the US this year', odds:1/37500000},
+  {label:'correctly guessing a coin flip 25 times in a row', odds:1/33554432},
+  {label:'dying from a mountain lion attack in the US', odds:1/32000000},
+  {label:'becoming an astronaut', odds:1/13200000},
+  {label:'dying in a commercial plane crash', odds:1/11000000},
+  {label:'becoming US President', odds:1/10000000},
+  {label:'finding a gold nugget while hiking', odds:1/10000000},
+  {label:'dying in a hot air balloon accident this year', odds:1/10000000},
+  {label:'dying from airplane debris falling from the sky', odds:1/10000000},
+  {label:'dying from a lightning strike while indoors', odds:1/10000000},
+  {label:'dying in an earthquake in the US this year', odds:1/10000000},
+  {label:'dying from a wasp sting on a single encounter', odds:1/6250000},
+  {label:'dying from a rare parasitic infection in the US', odds:1/5000000},
+  {label:'being attacked by a shark', odds:1/3748067},
+  {label:'dying in a skydiving accident this year', odds:1/3000000},
+  {label:'dying from a grizzly bear attack in the US', odds:1/2100000},
+  {label:'rolling a 6 on a die 8 times in a row', odds:1/1679616},
+  {label:'being struck by lightning this year', odds:1/1200000},
+  {label:'winning a Nobel Prize in your lifetime', odds:1/1100000},
+  {label:'flipping heads 20 times in a row', odds:1/1048576},
+  {label:'dying from a spider bite', odds:1/1000000},
+  {label:'correctly guessing a 6-digit PIN on first try', odds:1/1000000},
+  {label:'dying in a boating accident this year', odds:1/1000000},
+  {label:'winning the Fields Medal in mathematics', odds:1/1000000},
+  {label:'dying from a rare prion disease like CJD this year', odds:1/1000000},
+  {label:'dying from a fireworks accident as a bystander', odds:1/1000000},
+  {label:'winning a major poker tournament as an amateur', odds:1/1000000},
+  {label:'getting a perfect SAT score', odds:1/785000},
+  {label:'being hit by a falling meteorite in your lifetime', odds:1/700000},
+  {label:'dying in a flood this year', odds:1/693116},
+  {label:'winning an Olympic medal as an average person', odds:1/662000},
+  {label:'getting a royal flush on your first hand of poker', odds:1/649740},
+  {label:'becoming a billionaire', odds:1/578508},
+  {label:'having identical triplets', odds:1/500000},
+  {label:'dying from a train accident as a passenger this year', odds:1/500000},
+  {label:'dying from a bee swarm attack', odds:1/500000},
+  {label:'dying from a rare autoimmune disease this year', odds:1/250000},
+  {label:'dying on a single skydive', odds:1/200000},
+  {label:'drawing a perfect blackjack hand on first deal', odds:1/184756},
+  {label:'becoming a chess grandmaster', odds:1/168000},
+  {label:'dying from a dog bite this year', odds:1/112400},
+  {label:'getting a straight flush in poker', odds:1/64974},
+  {label:'dying from a hornet or wasp sting this year', odds:1/63225},
+  {label:'dying in a tornado this year', odds:1/60000},
+  {label:'dying from a bee sting this year', odds:1/46948},
+  {label:'rolling snake eyes three times in a row', odds:1/46656}
+];
+
+function updateFactCard(){
+  var card=document.getElementById('mob-fact-card');
+  if(!card) return;
+  // Pick fact based on day of year (changes daily)
+  var now=new Date();
+  var dayOfYear=Math.floor((now-(new Date(now.getFullYear(),0,0)))/86400000);
+  var fact=MINING_FACTS[dayOfYear%MINING_FACTS.length];
+  // Get current 1-year block odds for selected coin
+  var totalTHs=0;
+  minerIPs.forEach(function(ip){
+    var sd=sessionData[ip]||{};
+    var hr=sd.hashrate!=null?sd.hashrate:(minerData[ip]||{}).hashRate_1m||(minerData[ip]||{}).hashRate||0;
+    totalTHs+=hr;
+  });
+  totalTHs=totalTHs/1000;
+  if(totalTHs<=0){ card.style.display='none'; return; }
+  var netHash=NET_HASHRATES[SELECTED_COIN]||NET_HASHRATES.btc;
+  var blockTime=BLOCK_TIMES[SELECTED_COIN]||600;
+  var blocksPerYear=(86400/blockTime)*365;
+  var miningOdds=(totalTHs/netHash)*blocksPerYear;
+  if(miningOdds<=0){ card.style.display='none'; return; }
+  var ratio=miningOdds/fact.odds;
+  var ratioStr, comparison;
+  function fmtRatio(n){
+    var rounded=n>=1000?Math.round(n/100)*100:Math.round(n);
+    return rounded.toLocaleString()+'x';
+  }
+  if(ratio>=2){
+    ratioStr=fmtRatio(ratio);
+    comparison='You are <b>'+ratioStr+' more likely</b> to mine a '+SELECTED_COIN.toUpperCase()+' block this year than '+fact.label+'.';
+  } else if(ratio<=0.5){
+    ratioStr=fmtRatio(1/ratio);
+    comparison='You are <b>'+ratioStr+' less likely</b> to mine a '+SELECTED_COIN.toUpperCase()+' block this year than '+fact.label+'.';
+  } else {
+    comparison='You have <b>about the same odds</b> of mining a '+SELECTED_COIN.toUpperCase()+' block this year as '+fact.label+'.';
+  }
+  card.style.display='block';
+  card.innerHTML='<div style="padding:10px 16px;font-size:.78rem;color:var(--txt);line-height:1.5">'+
+    '<span style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px">Daily Mining Fact</span>'+
+    comparison+
+  '</div>';
+}
+function mobRemoveMiner(ip){
+  if(!confirm('Remove '+ip+'?')) return;
+  var i=minerIPs.indexOf(ip);
+  if(i<0) return;
+  minerIPs.splice(i,1);
+  delete sessionData[ip];
+  delete allTimeData[ip];
+  manualRefresh();
+}
+
+var minersBuilt=false, lastIPStr='';
+var mobTopN=10;
+
+// Pause refresh when any input/select/textarea is focused
+document.addEventListener('focusin', function(e){
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA'){
+    refreshPaused=true;
+  }
+});
+document.addEventListener('focusout', function(e){
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA'){
+    // Small delay so rapid field-to-field tabbing doesn't trigger a refresh mid-form
+    setTimeout(function(){ if(!document.activeElement||
+      (document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='SELECT'&&document.activeElement.tagName!=='TEXTAREA')){
+      refreshPaused=false;
+    }},300);
+  }
+});
+
+function updateMinerData(){
+  minerIPs.forEach(function(ip){
+    var d=minerData[ip]||{};
+    var sd=sessionData[ip]||{};
+    var color=getMinerColor(ip);
+    var key=ip.replace(/[.]/g,'_');
+    var isLive=(d.hashRate_1m>0)||(d.hashRate>0);
+    var hr=d.hashRate_1m||d.hashRate||0;
+    var winHR=sd.hashrate!=null?sd.hashrate:hr;
+    var winShares=sd.shares!=null?sd.shares:(d.sharesAccepted!=null?d.sharesAccepted:null);
+    var winRej=sd.rejected!=null?sd.rejected:(d.sharesRejected||0);
+    var winBest=sd.bestDiff!=null?sd.bestDiff:d.bestDiff;
+    var winSess=sd.sessionBest!=null?sd.sessionBest:d.bestSessionDiff;
+    var winUp=sd.uptime!=null?sd.uptime:d.uptimeSeconds;
+    var winStatus=sd.status!=null?sd.status:(isLive?'Live':'Offline');
+    var winIsLive=winStatus==='Live';
+    var winLast=sd.lastDiff!=null?fmtD(sd.lastDiff):'—';
+    var winEff=sd.efficiency!=null?sd.efficiency.toFixed(1)+' W/TH':'—';
+    var winTarget=sd.lastTarget!=null?fmtD(sd.lastTarget):'—';
+    var winRejPct=winShares>0?((winRej/winShares)*100).toFixed(2):'0.00';
+    var winRejStr=winShares>0?winRej+' ('+winRejPct+'%)':String(winRej);
+    var avgStr=(sd.avgShare)?sd.avgShare:'—';
+    function sv(sfx,val,cls){
+      var el=document.getElementById('sv-'+key+'-'+sfx);
+      if(el){el.textContent=val;if(cls!==undefined)el.className='stat-val'+(cls?' '+cls:'');}
+    }
+    sv('atbest',  fmtD(parseDiffStr(winBest)),'orange');
+    sv('sessbest',fmtD(parseDiffStr(winSess)),'');
+    sv('status',  (winIsLive?'Live':'Offline')+(winUp?' ('+fmtUp(winUp)+')':''),winIsLive?'green':'red');
+    sv('shares',  winShares!=null?String(winShares):'—','green');
+    sv('rej',     winRejStr,'red');
+    sv('avg',     avgStr,'');
+    sv('last',    winLast,'');
+    sv('target',  winTarget,'');
+    sv('freq',    d.frequency?d.frequency+' MHz':'—','');
+    sv('volt',    d.coreVoltage?d.coreVoltage+' mV':'—','');
+    sv('fan',     d.fanspeed!=null?Math.round(d.fanspeed)+'%':(d.autofanspeed?'Auto':'—'),'');
+    var dotEl=document.getElementById('dot-'+key);
+    if(dotEl) dotEl.className='card-dot'+(winIsLive?' live':d.error?' err':'');
+    var hrB=document.getElementById('hrbadge-'+key);
+    if(hrB) hrB.textContent=fmtHR(winHR);
+    // Auto-restart button state is managed locally, not from session data
+    var errB=document.getElementById('errbadge-'+key);
+    if(errB){ var errRate=sd.errorRate!=null?sd.errorRate:null; errB.textContent=errRate!=null?'('+errRate.toFixed(2)+'%)':''; }
+    var sd2=sessionData[ip]||{};
+    var temps=[];
+    if(sd2.temps&&sd2.temps.length){
+      temps=sd2.temps.map(function(t){return {label:t.label,val:t.val,isVR:t.isVR||(t.label==='VR')};});
+    } else {
+      if(d.temp>0) temps.push({label:'ASIC 1',val:d.temp,isVR:false});
+      for(var ti=2;ti<=8;ti++){if(d['temp'+ti]>0) temps.push({label:'ASIC '+ti,val:d['temp'+ti],isVR:false});}
+      if(d.vrTemp>0) temps.push({label:'VR',val:d.vrTemp,isVR:true});
+    }
+    temps.forEach(function(t){
+      var tc=tempColor(t.val,t.isVR);
+      var tkey=key+'_'+t.label.replace(/ /g,'_');
+      var pct=Math.min(100,(t.val/85)*100);
+      var b=document.getElementById('tbar-'+tkey);
+      var v=document.getElementById('tval-'+tkey);
+      if(b){b.style.width=pct+'%';b.style.background=tc;}
+      if(v){v.textContent=t.val.toFixed(1)+'°';v.style.color=tc;}
+    });
+    drawDiffChart(ip,color);
+    drawHashTempChart(ip,color);
+  });
+}
+
+
+// ── Hash Rain ─────────────────────────────────────────────────────────────────
+var _hrCanvas=null, _hrCtx=null, _hrAnim=null, _hrEnabled=false;
+var _hrHashes=[], _hrFlashes={};
+var _hrFontSize=11, _hrSpeed=0.5, _hrOffset=0;
+var _hrColor='#22d37a';
+var _hrBgAlpha=0.18;    // background hash brightness
+var _hrShareAlpha=1.0;  // share flash brightness
+var _prevShares={};
+
+function _hrRandHex64(){
+  var h='0123456789abcdef',s='';
+  for(var i=0;i<64;i++) s+=h[Math.floor(Math.random()*16)];
+  return s;
+}
+
+function _hrInit(){
+  _hrCanvas=document.getElementById('hash-rain');
+  if(!_hrCanvas) return;
+  _hrCtx=_hrCanvas.getContext('2d');
+  _hrResize();
+  window.addEventListener('resize',_hrResize);
+}
+
+function _hrResize(){
+  if(!_hrCanvas) return;
+  _hrCanvas.width=window.innerWidth;
+  _hrCanvas.height=window.innerHeight;
+  // Fill screen with rows + buffer rows above for seamless loop
+  var rowH=_hrFontSize+2;
+  var numRows=Math.ceil(window.innerHeight/rowH)+4;
+  var numVisible=Math.ceil(window.innerHeight/(_hrFontSize+2))+2;
+  _hrHashes=[];
+  for(var i=0;i<numVisible;i++) _hrHashes.push(_hrRandHex64());
+  _hrOffset=0;
+  _hrFlashes={};
+}
+
+function _hrDraw(){
+  if(!_hrCtx||!_hrEnabled) return;
+  _hrCtx.clearRect(0,0,_hrCanvas.width,_hrCanvas.height);
+  _hrCtx.font=_hrFontSize+'px monospace';
+  _hrCtx.textAlign='left';
+
+  var rowH=_hrFontSize+2;
+  _hrOffset+=_hrSpeed;
+  if(_hrOffset>=rowH){
+    _hrOffset-=rowH;
+    // Remove last hash (scrolled off bottom), add new one at top
+    _hrHashes.pop();
+    _hrHashes.unshift(_hrRandHex64());
+  }
+
+  for(var i=0;i<_hrHashes.length;i++){
+    var y=i*rowH+_hrOffset;
+    if(y<0||y>_hrCanvas.height+rowH) continue;
+    var hash=_hrHashes[i];
+    var flash=_hrFlashes[hash];
+    if(flash){
+      _hrCtx.fillStyle=flash.color;
+      _hrCtx.globalAlpha=_hrShareAlpha;
+      // Remove flash when it scrolls off bottom
+      if(y>_hrCanvas.height) delete _hrFlashes[hash];
+    } else {
+      _hrCtx.fillStyle=_hrColor;
+      _hrCtx.globalAlpha=_hrBgAlpha;
+    }
+    _hrCtx.fillText(hash,4,y);
+  }
+
+  _hrCtx.globalAlpha=1;
+  _hrAnim=requestAnimationFrame(_hrDraw);
+}
+
+function _hrStart(){
+  if(!_hrCanvas) _hrInit();
+  _hrEnabled=true;
+  _hrCanvas.style.display='block';
+  if(!_hrAnim) _hrDraw();
+}
+
+function _hrStop(){
+  _hrEnabled=false;
+  if(_hrCanvas) _hrCanvas.style.display='none';
+  if(_hrAnim){ cancelAnimationFrame(_hrAnim); _hrAnim=null; }
+}
+
+function _hrFlashShare(diff){
+  if(!_hrCanvas||!_hrHashes.length) return;
+  var color='#22d37a';
+  if(diff>=100000000) color='#f45060';
+  else if(diff>=1000000) color='#f7931a';
+  // Insert a new unique hash at the top and tag it by value
+  var newHash=_hrRandHex64();
+  _hrHashes[0]=newHash;
+  _hrFlashes[newHash]={color:color};
+}
+
+function _hrCheckShares(){
+  if(!_hrEnabled) return;
+  minerIPs.forEach(function(ip){
+    var sd=sessionData[ip]||{};
+    var shares=sd.shares!=null?sd.shares:0;
+    var prev=_prevShares[ip]!=null?_prevShares[ip]:shares;
+    var diff=shares-prev;
+    if(diff>0 && prev>0){
+      var lastDiff=sd.lastDiff||0;
+      for(var i=0;i<Math.min(diff,5);i++){
+        (function(delay){
+          setTimeout(function(){ _hrFlashShare(lastDiff); }, delay);
+        })(i*250);
+      }
+    }
+    _prevShares[ip]=shares;
+  });
+}
+
+// Load hash rain setting
+(function(){
+  var enabled=localStorage.getItem('mob_hashrain')==='1';
+  var color=localStorage.getItem('mob_hashrain_color')||'#22d37a';
+  _hrColor=color;
+  _hrBgAlpha=parseFloat(localStorage.getItem('mob_hashrain_bgalpha')||'0.18');
+  _hrShareAlpha=parseFloat(localStorage.getItem('mob_hashrain_sharealpha')||'1.0');
+  if(enabled){ setTimeout(_hrStart,500); }
+})();
+// Load scripts from server on startup
+mobLoadScripts();
+
+async function doRefresh(){
+  if(refreshing||refreshPaused) return;
+  refreshing=true;
+  document.getElementById('refresh-btn').classList.add('spinning');
+  try{
+    await Promise.all([loadAllTime(),loadSession()]);
+    await loadMiners();
+    await loadAllMinerData();
+    // Update AR buttons in-place from session data (no full rebuild needed)
+    minerIPs.forEach(function(ip){
+      var key=ip.replace(/[.]/g,'_');
+      var arB=document.getElementById('mob-ar-'+key);
+      if(!arB) return;
+      var tapAge=_mobARTapTime[ip]?Date.now()-_mobARTapTime[ip]:99999;
+      if(tapAge<15000) return; // user tapped recently, don't override
+      var sdAR=(sessionData[ip]||{}).autoRestart||false;
+      var curOn=arB.dataset.on==='1';
+      if(curOn!==sdAR){
+        arB.dataset.on=sdAR?'1':'0';
+        arB.style.color=sdAR?'var(--grn)':'var(--muted)';
+        arB.style.borderColor=sdAR?'var(--grn)':'var(--muted)';
+        _mobARState[ip]=sdAR;
+      }
+    });
+    var ipStr=minerIPs.slice().sort().join(',');
+    if(!minersBuilt||ipStr!==lastIPStr){
+      renderMiners();
+      minersBuilt=minerIPs.length>0;
+      lastIPStr=ipStr;
+    } else {
+      updateMinerData();
+    }
+    // Always re-render active tab to keep data fresh
+    if(activeTab==='addminer'&&!settingsDirty) renderAddMiner();
+    if(activeTab==='top10') renderTop10();
+    else if(activeTab==='alltime') renderAllTime();
+    else if(activeTab==='pool') renderPool();
+    else if(activeTab==='settings'&&!refreshPaused&&!settingsDirty) renderSettings();
+    if(activeTab==='addminer'&&!refreshPaused&&!settingsDirty) renderAddMiner();
+  }catch(e){}
+  // Update odds card
+  updateOddsCard();
+
+  // Update total bar
+  var hrEl=document.getElementById('mob-totalhr');
+  var wEl=document.getElementById('mob-totalwatts');
+  if(hrEl){
+    var thr=0;
+    minerIPs.forEach(function(ip){var sd2=sessionData[ip]||{};var lastFound2=sd2.lastFoundTs||0;var stalled2=sd2.stalled===true;var hr2=stalled2?0:(sd2.hashrate!=null?sd2.hashrate:(minerData[ip]||{}).hashRate_1m||(minerData[ip]||{}).hashRate||0);thr+=hr2;});
+    hrEl.textContent=thr>=1000?(thr/1000).toFixed(2)+' TH/s':thr.toFixed(1)+' GH/s';
+  }
+  if(wEl){
+    var tw=0;
+    minerIPs.forEach(function(ip){var p=(sessionData[ip]||{}).power;if(p!=null)tw+=p;});
+    wEl.textContent=tw>0?tw.toFixed(1)+'W':'—W';
+    var cEl=document.getElementById('mob-totalcost');
+    if(cEl){
+      var cRate=parseFloat(localStorage.getItem('mob_power_rate')||'0');
+      var cDay=tw>0&&cRate>0?(tw/1000)*24*cRate:0;
+      cEl.textContent=cDay>0?'$'+cDay.toFixed(2)+'/day':'';
+    }
+  }
+  // Stall detection per miner
+  _hrCheckShares();
+  minerIPs.forEach(function(ip){
+    var key=ip.replace(/[.]/g,'_');
+    var sd2=sessionData[ip]||{};
+    var lastFound=sd2.lastFoundTs||0;
+    var status=sd2.status||'';
+    var isStalled=sd2.stalled===true;
+    // Card border
+    var card=document.getElementById('mob-card-'+key);
+    if(card) card.style.borderColor=isStalled?'var(--red)':'var(--bdr)';
+    // Hashrate badge
+    var hrBadge=document.getElementById('hrbadge-'+key);
+    if(hrBadge){
+      hrBadge.style.color=isStalled?'var(--red)':'';
+      if(isStalled) hrBadge.textContent='0 GH/s';
+    }
+    // Stall badge
+    var stallBadge=document.getElementById('stallbadge-'+key);
+    if(stallBadge) stallBadge.textContent=isStalled?'⚠ Stalled':'';
+
+    // Null out stats when stalled (shares, avg, last, target, status row)
+    ['shares','avg','eff','target'].forEach(function(rk){
+      var el=document.getElementById('sv-'+key+'-'+rk);
+      if(el&&isStalled) el.textContent='—';
+    });
+    var shrEl=document.getElementById('sv-'+key+'-shares');
+    var rejEl=document.getElementById('sv-'+key+'-rej');
+    if(isStalled){ if(shrEl) shrEl.textContent='—'; if(rejEl) rejEl.textContent='—'; }
+    var stEl=document.getElementById('sv-'+key+'-status');
+    if(stEl&&isStalled) stEl.textContent='⚠ Stalled';
+    // Update efficiency live
+    if(!isStalled){
+      var effEl2=document.getElementById('sv-'+key+'-eff');
+      if(effEl2){
+        var eff2=sd2.efficiency!=null?sd2.efficiency:(sd2.power&&sd2.hashrate&&sd2.hashrate>0?sd2.power/sd2.hashrate*1000:null);
+        effEl2.textContent=eff2!=null?eff2.toFixed(1)+' W/TH':'—';
+      }
+    }
+  });
+
+  document.getElementById('refresh-btn').classList.remove('spinning');
+  refreshing=false;
+}
+function manualRefresh(){ minersBuilt=false; doRefresh(); }
+
+setInterval(doRefresh, 5000);
+doRefresh();
+</script>
+<div id="mob-donate-overlay" style="position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'"><div style="background:var(--surf);border:1px solid var(--bdr);border-radius:12px;padding:20px;max-width:420px;width:92%;max-height:85vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h2 style="font-size:.9rem;letter-spacing:.1em;text-transform:uppercase;color:#f7931a">💛 Support This Project</h2><button onclick="document.getElementById('mob-donate-overlay').style.display='none'" style="background:transparent;border:1px solid var(--muted2);color:var(--muted);font-family:inherit;font-size:.68rem;padding:4px 12px;border-radius:6px;cursor:pointer">✕</button></div><p style="font-size:.76rem;color:var(--muted);margin-bottom:14px;line-height:1.6">If this app has helped your mining operation, any donation is greatly appreciated. Tap any address to copy it.</p><div style="background:var(--surf2);border-radius:8px;padding:12px 14px;margin-bottom:10px"><div style="font-size:.7rem;color:#f7931a;font-weight:700;letter-spacing:.1em;margin-bottom:6px">BTC</div><div style="font-size:.78rem;color:#e8f4ff;word-break:break-all;font-family:monospace" onclick="navigator.clipboard&&navigator.clipboard.writeText('bc1q7cddtk0leg6n7phpe8ershfx5ue6ksd2lgut0s').then(function(){var e=document.getElementById('mob-donate-copied');e.textContent='Copied!';setTimeout(function(){e.textContent=''},2000)})">bc1q7cddtk0leg6n7phpe8ershfx5ue6ksd2lgut0s</div></div><div style="background:var(--surf2);border-radius:8px;padding:12px 14px;margin-bottom:10px"><div style="font-size:.7rem;color:#8dc351;font-weight:700;letter-spacing:.1em;margin-bottom:6px">BCH</div><div style="font-size:.78rem;color:#e8f4ff;word-break:break-all;font-family:monospace" onclick="navigator.clipboard&&navigator.clipboard.writeText('qru9pw3v76wk8m4taac4670dmnlyk5c6kceu763rnm').then(function(){var e=document.getElementById('mob-donate-copied');e.textContent='Copied!';setTimeout(function(){e.textContent=''},2000)})">qru9pw3v76wk8m4taac4670dmnlyk5c6kceu763rnm</div></div><div style="background:var(--surf2);border-radius:8px;padding:12px 14px;margin-bottom:10px"><div style="font-size:.7rem;color:#627eea;font-weight:700;letter-spacing:.1em;margin-bottom:6px">ETH</div><div style="font-size:.78rem;color:#e8f4ff;word-break:break-all;font-family:monospace" onclick="navigator.clipboard&&navigator.clipboard.writeText('0x8d89ad340A131429fE76bBeC547476e6a6Ae16db').then(function(){var e=document.getElementById('mob-donate-copied');e.textContent='Copied!';setTimeout(function(){e.textContent=''},2000)})">0x8d89ad340A131429fE76bBeC547476e6a6Ae16db</div></div><div style="background:var(--surf2);border-radius:8px;padding:12px 14px;margin-bottom:10px"><div style="font-size:.7rem;color:#bfbbbb;font-weight:700;letter-spacing:.1em;margin-bottom:6px">LTC</div><div style="font-size:.78rem;color:#e8f4ff;word-break:break-all;font-family:monospace" onclick="navigator.clipboard&&navigator.clipboard.writeText('ltc1q4jeadmeunm397vqmuycxvpdhasvzatx7te5z2g').then(function(){var e=document.getElementById('mob-donate-copied');e.textContent='Copied!';setTimeout(function(){e.textContent=''},2000)})">ltc1q4jeadmeunm397vqmuycxvpdhasvzatx7te5z2g</div></div><div style="background:var(--surf2);border-radius:8px;padding:12px 14px;margin-bottom:10px"><div style="font-size:.7rem;color:#f3ba2f;font-weight:700;letter-spacing:.1em;margin-bottom:6px">BNB</div><div style="font-size:.78rem;color:#e8f4ff;word-break:break-all;font-family:monospace" onclick="navigator.clipboard&&navigator.clipboard.writeText('0x8d89ad340A131429fE76bBeC547476e6a6Ae16db').then(function(){var e=document.getElementById('mob-donate-copied');e.textContent='Copied!';setTimeout(function(){e.textContent=''},2000)})">0x8d89ad340A131429fE76bBeC547476e6a6Ae16db</div></div><div id="mob-donate-copied" style="text-align:center;color:var(--grn);font-size:.8rem;min-height:18px;margin-top:6px"></div></div></div>
+<div id="mob-block-banner">
+  <div class="mob-block-emoji">🎉</div>
+  <div class="mob-block-title">BLOCK FOUND!</div>
+  <div class="mob-block-sub" id="mob-block-sub">A block was found!</div>
+  <button class="mob-block-close" onclick="document.getElementById('mob-block-banner').classList.remove('show')">Dismiss</button>
+</div>
+</body>
+</html>
