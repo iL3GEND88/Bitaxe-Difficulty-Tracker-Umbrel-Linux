@@ -1,1 +1,0 @@
-# Bitaxe-Difficulty-Tracker-Umbrel-Linux
