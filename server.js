@@ -15,6 +15,7 @@ const SCRIPT_DIR = __dirname;
 // ── Persistence files ──────────────────────────────────────────────────────────
 const MINERS_FILE   = path.join(SCRIPT_DIR, 'miners-data.json');
 const SETTINGS_FILE = path.join(SCRIPT_DIR, 'settings-data.json');
+const REPORTS_FILE  = path.join(SCRIPT_DIR, 'reports-data.json');
 const ALLTIME_FILE  = path.join(SCRIPT_DIR, 'alltime-data.json');
 const SCRIPTS_FILE  = path.join(SCRIPT_DIR, 'scripts-data.json');
 
@@ -23,6 +24,10 @@ let pendingNotifs = null;
 let scriptsCache  = null;
 let pendingScripts = null;
 let arStateCache  = null;
+let reportsCache   = null;
+let pendingReports = null;
+let hrAllTimeCache = null;
+let pendingClearSession = null;
 let allTimeCache  = null;
 let minersCache   = null;
 let netHashCache  = { btc:'{}', bch:'{}', dgb:'{}', xec:'{}', fb:'{}' };
@@ -210,7 +215,7 @@ function startMinerPoll(ip){
         m.axeOSHashrate = hr;
         m.hashSeries = m.hashSeries||[];
         m.hashSeries.push({ts:Date.now(),hr,hr1m:d.hashRate_1m||hr,hr10m:d.hashRate_10m||hr,hr1h:d.hashRate_1h||hr,temps:temps.slice(),pwr:d.power||0});
-        if(m.hashSeries.length>30000) m.hashSeries.shift();
+        if(m.hashSeries.length>86400) m.hashSeries.shift(); // 48 hours at 2s polling
       }
       if(d.bestDiff!=null) m.axeOSBestDiff = d.bestDiff;
       if(d.bestSessionDiff!=null) m.axeOSSessionBest = d.bestSessionDiff;
@@ -292,6 +297,7 @@ try {
   }
   if(fs.existsSync(ALLTIME_FILE)){ allTimeCache=fs.readFileSync(ALLTIME_FILE,'utf8'); console.log('  [Server] Loaded all-time data'); }
   if(fs.existsSync(SCRIPTS_FILE)){ scriptsCache=fs.readFileSync(SCRIPTS_FILE,'utf8'); console.log('  [Server] Loaded scripts'); }
+  if(fs.existsSync(REPORTS_FILE)){ reportsCache=fs.readFileSync(REPORTS_FILE,'utf8'); console.log('  [Server] Loaded reports'); }
 } catch(e){ console.log('  [Server] Could not load data files:', e.message); }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -461,7 +467,7 @@ const server=http.createServer(async(req,res)=>{
   if(path_==='/session'){
     const body=await readBody(req);
     if(req.method==='POST'){
-      try{const d=JSON.parse(body);if(d.ip)sessionCache[d.ip]=d;}catch(e){}
+      try{const d=JSON.parse(body);sessionCache=d;}catch(e){}
       return json(res,{ok:true});
     }else{ return json(res,sessionCache); }
   }
@@ -526,6 +532,33 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(path_==='/setautorestart') return json(res,{ok:true});
+  // ── New endpoints ────────────────────────────────────────────────────────
+  if(path_==='/hralltime'){
+    if(method==='POST'){ hrAllTimeCache=body; return json(res,{ok:true}); }
+    cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(hrAllTimeCache||'{}'); return;
+  }
+  if(path_==='/setclearsession'&&method==='POST'){ pendingClearSession=body; return json(res,{ok:true}); }
+  if(path_==='/getclearsession'){
+    const cs=pendingClearSession||'{}'; pendingClearSession=null;
+    cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(cs); return;
+  }
+  // /reports - GET and POST (Windows posts here, mobile GETs here)
+  if(path_==='/reports'){
+    if(method==='POST'){
+      if(body&&body.length>2){
+        reportsCache=body;
+        try{fs.writeFileSync(REPORTS_FILE,body,'utf8');}catch(e){}
+      }
+      cors(res); res.writeHead(200); res.end('ok'); return;
+    } else {
+      cors(res); res.writeHead(200,{'Content-Type':'application/json'});
+      res.end(reportsCache||'{}'); return;
+    }
+  }
+  if(path_==='/setreports'&&method==='POST'){ reportsCache=body; return json(res,{ok:true}); }
+  if(path_==='/getreports'){
+    cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(reportsCache||'{}'); return;
+  }
   if(path_==='/getautorestart') return json(res,{});
   if(path_==='/arstate'){
     const body=await readBody(req);

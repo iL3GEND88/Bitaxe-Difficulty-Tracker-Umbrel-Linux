@@ -4,6 +4,8 @@ A real-time share difficulty monitor and full dashboard for home Bitcoin miners 
 
 No cloud. No accounts. Runs entirely on your local network. Full companion mobile app for iPhone/Android via Safari or Chrome over WiFi or Tailscale.
 
+> **Raspberry Pi note:** The Node.js server runs great on any Pi model. However, the dashboard is a heavy browser app — 48 hours of chart history, live WebSocket streams, and multiple overlays. If you want to open the dashboard on the Pi itself using Chromium, a Pi 4 or 5 is recommended and may still feel sluggish over time. The recommended setup is to run the server on the Pi and open the dashboard on a PC or phone browser across the network — the Pi never touches rendering in that case and works fine even on older models.
+
 ---
 
 ## Quick Start
@@ -74,61 +76,56 @@ The server starts on port **19248**.
 
 ## Browser Window
 
-The launcher tries to open the app in a dedicated app-mode window (no browser tabs, no throttling) using the first Chromium browser it finds:
+The launcher tries to open the app in a dedicated app-mode window using the first Chromium browser it finds:
 
 **Linux:** Chrome → Chromium → Brave → Edge → default browser  
 **macOS:** Chrome → Brave → Edge → default browser
 
-If no Chromium browser is found it falls back to your default browser as a regular tab.
+The launcher also **automatically opens port 19248 in ufw** if it is active. If your phone still can't connect, run manually:
 
----
-
-## Standalone — No Windows Required
-
-The server connects directly to your miners. It:
-
-- Connects to each miner via WebSocket and parses the live log stream
-- Calculates share difficulty, session best, accepted/rejected counts
-- Polls the AxeOS API every 2 seconds for hashrate, temps, power, uptime
-- Pushes live data to the mobile app automatically
-- Triggers Crash/Restart Reports when hashrate drops to zero
-
-**iPhone/Android users** get full live stats without needing a Windows PC running.
-
----
-
-## Adding Miners
-
-Open the app in your browser and use the **+** button to add miners by IP address. Miners are saved to `miners-data.json` and reconnect automatically every time the server starts.
+```bash
+sudo ufw allow 19248
+```
 
 ---
 
 ## Features
 
 ### Windows / Desktop App
-- Live difficulty chart with all shares plotted in real time
+- Live difficulty chart with all shares plotted in real time — persists across session resets
+- **📊 Difficulty Scores page** — session best and all-time best per miner, collapsible, live updates, per-miner clear
+- **⚡ HR High Scores page** — peak hashrate records with error rate, collapsible per miner, per-miner clear
+- **Session best list persists** — restores from disk on app restart, validated against miner uptime
 - Hashrate / Temperature / Efficiency chart per miner
 - Combined, Split, and Both chart layouts
 - Time range dropdown: 10s / 30s / 1m / 5m / 30m / 1h / 6h / 24h / 1w / All
 - Efficiency (W/TH) stat per miner
 - All-Time Hall of Fame with AxeOS Scoreboard integration
-- **📋 Crash/Restart Reports** — auto-saved session snapshots when hashrate drops to zero
-- **📜 Scripts Engine** — automation scripts with conditions and actions, bidirectional sync with mobile
+- **📋 Crash/Restart Reports** — auto-saved when hashrate drops to zero
+  - 60-second lookback captures pre-crash hashrate and temps accurately
+  - Detects power faults, overheat, pool switches, manual and auto-restarts
+  - Collapsible cards, delete support, bidirectional sync with mobile
+- **📜 Scripts Engine** — automation scripts with conditions and actions
+  - Supports: hashrate, temperature, uptime, frequency, time of day, **autoRestarts** (restarts in last hour), and more
+  - Bidirectional sync with mobile
+- **🗑 Clear Sessions** — clear difficulty and HR scores per miner individually or all at once
+- **🪩 Disco Mode** — hides miner cards, expands live log full height
 - Pool settings and miner settings panels
-- Auto-restart per miner (5 min no shares + near-zero hashrate)
-- Chart history persists across session resets
-- Stall detection
+- Auto-restart per miner (max 3 per hour with warning)
+- Block found banner — fires immediately via API polling
 
 ### iPhone / Android Companion
 - Live miner stats pushed every 2 seconds
 - Difficulty and Hashrate/Temp charts per miner
+- **Session tab** — best diffs and HR scores per miner, collapsible, per-list clear buttons
+- **All-Time tab** — all-time bests per miner, collapsible
 - Pool settings, fan control, frequency/voltage control
 - Auto-restart toggle synced with desktop
 - Scripts management with drag-and-drop reordering
-- **Crash/Restart Reports** — collapsible session cards, delete support, bidirectional sync
+- **Crash/Restart Reports** — collapsible per miner, delete support, bidirectional sync
 - Battery Saver refresh rate: 2s / 5s / 10s / 20s
 - Hash Rain visual effect
-- All-Time and Session best lists
+- Odds calculator with exact values
 
 ---
 
@@ -143,8 +140,15 @@ All data is saved to disk in the same folder as the server:
 | `scripts-data.json` | Automation scripts |
 | `settings-data.json` | App preferences |
 | `reports-data.json` | Crash/Restart session reports |
+| `session-data.json` | Session best list snapshot (auto-created) |
 
-Data survives server restarts, reboots, and page refreshes.
+Data survives server restarts, reboots, and page refreshes. Server state is bounded — notifications capped at 50, all data structures have fixed maximum sizes to prevent memory growth over time.
+
+---
+
+## Adding Miners
+
+Open the app and use the **+** button to add miners by IP address.
 
 ---
 
@@ -155,7 +159,7 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
 
-Then access from anywhere using your Tailscale IP: `http://100.x.x.x:19248`
+Then access from anywhere: `http://100.x.x.x:19248`
 
 ---
 
@@ -165,7 +169,7 @@ Then access from anywhere using your Tailscale IP: `http://100.x.x.x:19248`
 sudo nano /etc/systemd/system/bitaxe-tracker.service
 ```
 
-Paste (adjust path to where you extracted the files):
+Paste (adjust path):
 ```ini
 [Unit]
 Description=Bitaxe Difficulty Tracker
@@ -183,21 +187,9 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Enable and start:
 ```bash
 sudo systemctl enable bitaxe-tracker
 sudo systemctl start bitaxe-tracker
-sudo systemctl status bitaxe-tracker
-```
-
----
-
-## Firewall
-
-If your phone can't connect, open port 19248:
-
-```bash
-sudo ufw allow 19248
 ```
 
 ---
@@ -215,8 +207,9 @@ scp -r BitaxeDifficultyTracker-Linux umbrel@umbrel.local:~/
 | Device | Notes |
 |---|---|
 | Bitaxe (all models) | Full support |
-| Bitaxe Duo 650 | Single ASIC temp sensor |
-| NerdQaxe++ | ANSI stripping + slash log format |
+| Bitaxe Duo 650 | Dual BM1370 chips |
+| NerdQaxe++ | Full support — uses lastResetReason field |
+| NerdOCTAXE Gamma | Full support — same firmware base as NerdQaxe |
 | Titan | AxeOS compatible |
 | NerdMiner v2 | No API — shows ⚠ warning |
 
