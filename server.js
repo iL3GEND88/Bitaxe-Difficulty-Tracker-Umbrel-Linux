@@ -15,9 +15,9 @@ const SCRIPT_DIR = __dirname;
 // ── Persistence files ──────────────────────────────────────────────────────────
 const MINERS_FILE   = path.join(SCRIPT_DIR, 'miners-data.json');
 const SETTINGS_FILE = path.join(SCRIPT_DIR, 'settings-data.json');
-const REPORTS_FILE  = path.join(SCRIPT_DIR, 'reports-data.json');
 const ALLTIME_FILE  = path.join(SCRIPT_DIR, 'alltime-data.json');
 const SCRIPTS_FILE  = path.join(SCRIPT_DIR, 'scripts-data.json');
+const GOVERNORS_FILE = path.join(SCRIPT_DIR, 'governors-data.json');
 
 // ── In-memory state ────────────────────────────────────────────────────────────
 let pendingNotifs = null;
@@ -28,8 +28,27 @@ let reportsCache   = null;
 let pendingReports = null;
 let hrAllTimeCache = null;
 let pendingClearSession = null;
+let pendingHrDelete = null;    // per-entry or whole-miner HR clear -> desktop clears local copy
+let pendingDiffClear = null;   // whole-miner all-time diff clear -> desktop clears local copy
 let allTimeCache  = null;
 let minersCache   = null;
+
+// Build labeled temps array: ASIC (temp,temp2..) + VR (vrTemp,vrTemp2..,vrr..).
+// Single sensor -> plain label ('ASIC','VR'); multiple -> numbered. Mirrors the client.
+function buildTempsArray(d){
+  const asics=[], vrs=[];
+  if(d.temp!=null && d.temp>0) asics.push(d.temp);
+  for(let i=2;i<=16;i++){ if(d['temp'+i]!=null && d['temp'+i]>0) asics.push(d['temp'+i]); }
+  if(d.vrTemp!=null && d.vrTemp>0) vrs.push(d.vrTemp);
+  for(let j=2;j<=16;j++){ if(d['vrTemp'+j]!=null && d['vrTemp'+j]>0) vrs.push(d['vrTemp'+j]); }
+  if(d.vrr!=null && d.vrr>0) vrs.push(d.vrr);
+  for(let k=2;k<=16;k++){ if(d['vrr'+k]!=null && d['vrr'+k]>0) vrs.push(d['vrr'+k]); }
+  const out=[];
+  asics.forEach((v,idx)=>out.push({label: asics.length>1?('ASIC '+(idx+1)):'ASIC', val:v, isVR:false, kind:'asic', idx}));
+  vrs.forEach((v,idx)=>out.push({label: vrs.length>1?('VR '+(idx+1)):'VR', val:v, isVR:true, kind:'vr', idx}));
+  return out;
+}
+
 let netHashCache  = { btc:'{}', bch:'{}', dgb:'{}', xec:'{}', fb:'{}' };
 let netHashLastFetch = { btc:0, bch:0, dgb:0, xec:0, fb:0 };
 
@@ -90,7 +109,7 @@ function initMinerState(ip, name, color){
       lastDiff:0, lastTarget:0,
       lastFoundTs:null, connectedAt:null,
       poolDifficulty:null,
-      axeOSHashrate:null, axeOSPower:null,
+      axeOSHashrate:null, axeOSPower:null, axeOSCurrent:null,
       axeOSUptime:null, axeOSShares:null,
       axeOSRejected:null, axeOSBestDiff:null,
       axeOSSessionBest:null, axeOSErrorRate:null,
@@ -203,19 +222,21 @@ function startMinerPoll(ip){
     try {
       const data = await proxyGet(`http://${ip}/api/system/info`, 4000);
       const d = JSON.parse(data);
-      const temps = [];
-      if(d.temp!=null&&d.temp>0) temps.push({label:'ASIC 1',val:d.temp});
-      for(let i=2;i<=16;i++){ if(d['temp'+i]!=null&&d['temp'+i]>0) temps.push({label:'ASIC '+i,val:d['temp'+i]}); }
-      if(d.vrTemp!=null&&d.vrTemp>0) temps.push({label:'VR',val:d.vrTemp});
+      const temps = buildTempsArray(d);
       m.temps = temps;
+      // Stash live control inputs for the governor engine
+      m._lastApiData = d;
       if(d.uptimeSeconds!=null) m.axeOSUptime = d.uptimeSeconds;
+      // current draw (amps) for the governor amps-band: prefer currentA, else mA->A
+      if(d.currentA!=null) m.axeOSCurrent = d.currentA;
+      else if(d.current!=null) m.axeOSCurrent = d.current/1000;
       const hrInst = d.hashRate!=null?d.hashRate:(d.hashrate!=null?d.hashrate:null);
       const hr = hrInst!=null?hrInst:(d.hashRate_1m!=null?d.hashRate_1m:null);
       if(hr!=null){
         m.axeOSHashrate = hr;
         m.hashSeries = m.hashSeries||[];
         m.hashSeries.push({ts:Date.now(),hr,hr1m:d.hashRate_1m||hr,hr10m:d.hashRate_10m||hr,hr1h:d.hashRate_1h||hr,temps:temps.slice(),pwr:d.power||0});
-        if(m.hashSeries.length>86400) m.hashSeries.shift(); // 48 hours at 2s polling
+        if(m.hashSeries.length>30000) m.hashSeries.shift();
       }
       if(d.bestDiff!=null) m.axeOSBestDiff = d.bestDiff;
       if(d.bestSessionDiff!=null) m.axeOSSessionBest = d.bestSessionDiff;
@@ -297,7 +318,7 @@ try {
   }
   if(fs.existsSync(ALLTIME_FILE)){ allTimeCache=fs.readFileSync(ALLTIME_FILE,'utf8'); console.log('  [Server] Loaded all-time data'); }
   if(fs.existsSync(SCRIPTS_FILE)){ scriptsCache=fs.readFileSync(SCRIPTS_FILE,'utf8'); console.log('  [Server] Loaded scripts'); }
-  if(fs.existsSync(REPORTS_FILE)){ reportsCache=fs.readFileSync(REPORTS_FILE,'utf8'); console.log('  [Server] Loaded reports'); }
+  if(fs.existsSync(GOVERNORS_FILE)){ try{ _govLoadFrom(fs.readFileSync(GOVERNORS_FILE,'utf8')); console.log('  [Server] Loaded governors'+(_govEnabled?' (ON)':' (off)')); }catch(e){} }
 } catch(e){ console.log('  [Server] Could not load data files:', e.message); }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -354,6 +375,141 @@ function proxyPost(url,bodyStr,timeoutMs=5000){
     req.write(bodyStr); req.end();
   });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DYNAMIC GOVERNOR ENGINE (server-side, Node) — Linux/Umbrel lead node.
+// Runs the control loop here so governance works without any browser open.
+// Faithful port of the Windows browser engine: per-sensor bands, dwell/settle,
+// fan gates, floor/ceiling clamping, restart-after, 24hr windows.
+// ═══════════════════════════════════════════════════════════════════════════════
+let governorsCache = null;     // canonical JSON {enabled, data:{ip:[profiles]}} (for /governors read)
+let pendingGovernors = null;   // mobile/web writes -> picked up if a remote editor changes it
+let _govData = {};             // {ip:[profiles]}
+let _govEnabled = false;
+const _govState = {};          // runtime per-ip: {lastActionTs,lastDir,outOfBandSince,dir}
+
+function _govLoadFrom(jsonStr){
+  try{
+    const o = JSON.parse(jsonStr);
+    if(o && typeof o==='object'){
+      if(o.data && typeof o.data==='object'){ _govData = o.data; _govEnabled = !!o.enabled; }
+      else { _govData = o; } // tolerate bare {ip:[...]}
+      governorsCache = JSON.stringify({enabled:_govEnabled, data:_govData});
+      try{ fs.writeFileSync(GOVERNORS_FILE, governorsCache); }catch(e){}
+    }
+  }catch(e){}
+}
+
+function _nowHHMM(){ const d=new Date(); return d.getHours()*100+d.getMinutes(); }
+function _govWindowActive(p){
+  if(p.allDay) return true;
+  const now=_nowHHMM(), s=p.startHHMM, e=p.endHHMM;
+  if(s==null||e==null) return false;
+  if(s===e) return false;
+  if(s<e) return now>=s && now<e;
+  return now>=s || now<e; // wraps midnight
+}
+function _activeGovernor(ip){
+  const list=_govData[ip]||[];
+  for(let i=0;i<list.length;i++){ if(list[i].enabled && _govWindowActive(list[i])) return list[i]; }
+  return null;
+}
+
+function runGovernorFor(ip){
+  if(!_govEnabled) return;
+  const m = minerState[ip]; if(!m || !m.ip) return;
+  const p = _activeGovernor(ip); if(!p) return;
+  const d = m._lastApiData; if(!d) return;
+  // Uptime gate
+  if(m.axeOSUptime==null || m.axeOSUptime < (p.uptimeMin||0)*60) return;
+
+  const fan = d.fanspeed!=null ? d.fanspeed : null;
+  const curFreq = d.frequency!=null ? d.frequency : null;
+  const curVolt = d.coreVoltage!=null ? d.coreVoltage : null;
+  if(curFreq===null && curVolt===null) return;
+
+  const st = _govState[ip] || (_govState[ip]={lastActionTs:0,lastDir:0,outOfBandSince:0,dir:0});
+
+  // Settle: pause after any adjustment
+  if(st.lastActionTs && (Date.now()-st.lastActionTs) < (p.settleSec||0)*1000) return;
+
+  // Per-sensor evaluation: any sensor too hot -> down (wins); any too cool -> up. Blank band ignored.
+  function bandDir(val, band){
+    if(val==null || !band) return 0;
+    if(band.max!=null && val>band.max) return -1;
+    if(band.min!=null && val<band.min) return +1;
+    return 0;
+  }
+  const asicBands=p.asicBands||[], vrBands=p.vrBands||[];
+  let anyHot=false, anyCool=false;
+  (m.temps||[]).forEach(t=>{
+    const band = (t.kind==='vr') ? vrBands[t.idx] : asicBands[t.idx];
+    const dd = bandDir(t.val, band);
+    if(dd<0) anyHot=true; else if(dd>0) anyCool=true;
+  });
+  // Amps band — total current draw (single scalar). Over max is protective (like a
+  // too-hot sensor); under min allows a step up (both-ways).
+  if(p.ampsBand && m.axeOSCurrent!=null){
+    const adir = bandDir(m.axeOSCurrent, p.ampsBand);
+    if(adir<0) anyHot=true; else if(adir>0) anyCool=true;
+  }
+  let dir = anyHot ? -1 : (anyCool ? 1 : 0);
+  if(!p.bothWays && dir>0) dir=0;
+  if(dir===0){ st.outOfBandSince=0; st.dir=0; return; }
+
+  // Fan gates
+  if(dir<0){ if(p.fanStepDownMin!=null && fan!=null && fan < p.fanStepDownMin){ st.outOfBandSince=0; return; } }
+  else     { if(p.fanStepUpMax!=null   && fan!=null && fan > p.fanStepUpMax){   st.outOfBandSince=0; return; } }
+
+  // Reverse-direction lockout: reversing waits out dwell since last action
+  if(st.lastDir!==0 && dir!==st.lastDir){
+    if(st.lastActionTs && (Date.now()-st.lastActionTs) < (p.dwellSec||0)*1000) return;
+  }
+  // Dwell: sustained out of band
+  if(st.dir!==dir){ st.dir=dir; st.outOfBandSince=Date.now(); }
+  if(!st.outOfBandSince) st.outOfBandSince=Date.now();
+  if((Date.now()-st.outOfBandSince) < (p.dwellSec||0)*1000) return;
+
+  // Compute new freq/volt within floor/ceiling
+  let newFreq=curFreq, newVolt=curVolt, changed=false;
+  if(p.mhzStep && curFreq!=null){
+    let nf=curFreq + dir*p.mhzStep;
+    if(p.mhzFloor!=null) nf=Math.max(nf, p.mhzFloor);
+    if(p.mhzCeil!=null)  nf=Math.min(nf, p.mhzCeil);
+    if(nf!==curFreq){ newFreq=nf; changed=true; }
+  }
+  if(p.mvStep && curVolt!=null){
+    let nv=curVolt + dir*p.mvStep;
+    if(p.mvFloor!=null) nv=Math.max(nv, p.mvFloor);
+    if(p.mvCeil!=null)  nv=Math.min(nv, p.mvCeil);
+    if(nv!==curVolt){ newVolt=nv; changed=true; }
+  }
+  // Manual fan % target — steps OPPOSITE to freq/volt: too hot -> fan UP, too cool -> fan DOWN.
+  const curFan = (fan!=null) ? Math.round(fan) : null;
+  const fanGoverned = (p.fanStep!=null && p.fanStep!=='' && curFan!=null);
+  let newFan = curFan;
+  if(fanGoverned){
+    let nfan = curFan + (-dir)*p.fanStep;
+    const fFlo=(p.fanFloor!=null)?p.fanFloor:0, fCei=(p.fanCeil!=null)?p.fanCeil:100;
+    nfan = Math.max(fFlo, Math.min(fCei, nfan));
+    if(nfan!==curFan){ newFan=nfan; changed=true; }
+  }
+  if(!changed) return;
+
+  const body={frequency:newFreq, coreVoltage:newVolt, overclockEnabled:1,
+    autofanspeed: fanGoverned ? 0 : (d.autofanspeed?1:0),
+    manualFanSpeed: fanGoverned ? newFan : (d.fanspeed||100),
+    temptarget:d.tempTarget||d.temptarget||60, minfanspeed:d.minFanSpeed!=null?d.minFanSpeed:0};
+  proxyPatch(`http://${ip}/api/system`, JSON.stringify(body), 5000).then(()=>{
+    if(p.restartAfter){ setTimeout(()=>{ proxyPost(`http://${ip}/api/system/restart`,'',6000).catch(()=>{}); }, 1500); }
+  }).catch(()=>{});
+  st.lastActionTs=Date.now(); st.lastDir=dir; st.outOfBandSince=0; st.dir=0;
+  console.log(`[governor] ${m.name||ip}: ${dir<0?'down':'up'} -> ${p.mhzStep?newFreq+'MHz ':''}${p.mvStep?newVolt+'mV':''}`);
+}
+
+function runAllGovernors(){ Object.keys(minerState).forEach(ip=>{ try{ runGovernorFor(ip); }catch(e){} }); }
+setInterval(runAllGovernors, 5000);
+
 function serveFile(res,filePath){
   fs.readFile(filePath,(err,data)=>{
     if(err){res.writeHead(404);res.end('Not found');return;}
@@ -381,6 +537,7 @@ const server=http.createServer(async(req,res)=>{
   const path_=u.pathname;
   const ip=u.searchParams.get('ip');
   const coin=u.searchParams.get('coin')||'btc';
+  const method=req.method;
 
   if(req.method==='OPTIONS'){cors(res);res.writeHead(204);res.end();return;}
 
@@ -500,6 +657,26 @@ const server=http.createServer(async(req,res)=>{
   if(path_==='/setscripts'){const body=await readBody(req);pendingScripts=body;return json(res,{ok:true});}
   if(path_==='/getscripts'){cors(res);res.writeHead(200,{'Content-Type':'application/json'});res.end(pendingScripts||'[]');return;}
 
+  // ── Governor sync (mirrors scripts) ──
+  if(path_==='/governors'){
+    if(method==='POST'){
+      const body=await readBody(req);
+      if(body && body.length>1){ _govLoadFrom(body); }
+      return json(res,{ok:true});
+    }
+    cors(res);res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(governorsCache||'null');return;
+  }
+  if(path_==='/setgovernors'&&method==='POST'){
+    const body=await readBody(req);
+    if(body && body.length>1){ _govLoadFrom(body); pendingGovernors=governorsCache; }
+    return json(res,{ok:true});
+  }
+  if(path_==='/getgovernors'){
+    cors(res);res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(pendingGovernors||'null'); pendingGovernors=null; return;
+  }
+
   // ── Notifications ──
   if(path_==='/notifications'){
     const body=await readBody(req);
@@ -534,28 +711,59 @@ const server=http.createServer(async(req,res)=>{
   if(path_==='/setautorestart') return json(res,{ok:true});
   // ── New endpoints ────────────────────────────────────────────────────────
   if(path_==='/hralltime'){
-    if(method==='POST'){ hrAllTimeCache=body; return json(res,{ok:true}); }
+    if(method==='POST'){ const body=await readBody(req); hrAllTimeCache=body; return json(res,{ok:true}); }
     cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(hrAllTimeCache||'{}'); return;
   }
-  if(path_==='/setclearsession'&&method==='POST'){ pendingClearSession=body; return json(res,{ok:true}); }
+  if(path_==='/setclearsession'&&method==='POST'){ const body=await readBody(req); pendingClearSession=body; return json(res,{ok:true}); }
   if(path_==='/getclearsession'){
     const cs=pendingClearSession||'{}'; pendingClearSession=null;
     cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(cs); return;
   }
-  // /reports - GET and POST (Windows posts here, mobile GETs here)
-  if(path_==='/reports'){
-    if(method==='POST'){
-      if(body&&body.length>2){
-        reportsCache=body;
-        try{fs.writeFileSync(REPORTS_FILE,body,'utf8');}catch(e){}
+  // ── HR high-score delete: single entry (ts) or whole miner (ts:'all') ──
+  if(path_==='/deletehrentry'&&method==='POST'){
+    const body=await readBody(req);
+    try{
+      const del=JSON.parse(body);
+      if(hrAllTimeCache){
+        const dobj=JSON.parse(hrAllTimeCache);
+        if(del.ts==='all'){
+          if(Object.prototype.hasOwnProperty.call(dobj,del.ip)){ delete dobj[del.ip]; hrAllTimeCache=JSON.stringify(dobj); }
+        } else if(dobj[del.ip]){
+          dobj[del.ip]=dobj[del.ip].filter(x=>x.ts!==del.ts);
+          hrAllTimeCache=JSON.stringify(dobj);
+        }
       }
-      cors(res); res.writeHead(200); res.end('ok'); return;
-    } else {
-      cors(res); res.writeHead(200,{'Content-Type':'application/json'});
-      res.end(reportsCache||'{}'); return;
-    }
+      pendingHrDelete=body;
+    }catch(e){}
+    return json(res,{ok:true});
   }
-  if(path_==='/setreports'&&method==='POST'){ reportsCache=body; return json(res,{ok:true}); }
+  if(path_==='/gethrdelete'){
+    const hd=pendingHrDelete||'{}'; pendingHrDelete=null;
+    cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(hd); return;
+  }
+  // ── All-time diff clear: whole miner ──
+  if(path_==='/setdiffclear'&&method==='POST'){
+    const body=await readBody(req);
+    try{
+      const del=JSON.parse(body);
+      if(allTimeCache){
+        const aobj=JSON.parse(allTimeCache);
+        const target = (aobj && Object.prototype.hasOwnProperty.call(aobj,'alltime')) ? aobj.alltime : aobj;
+        if(target && Object.prototype.hasOwnProperty.call(target,del.ip)){
+          delete target[del.ip];
+          allTimeCache=JSON.stringify(aobj);
+          try{fs.writeFileSync(ALLTIME_FILE,allTimeCache,'utf8');}catch(e){}
+        }
+      }
+      pendingDiffClear=body;
+    }catch(e){}
+    return json(res,{ok:true});
+  }
+  if(path_==='/getdiffclear'){
+    const dc=pendingDiffClear||'{}'; pendingDiffClear=null;
+    cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(dc); return;
+  }
+  if(path_==='/setreports'&&method==='POST'){ const body=await readBody(req); reportsCache=body; return json(res,{ok:true}); }
   if(path_==='/getreports'){
     cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(reportsCache||'{}'); return;
   }
