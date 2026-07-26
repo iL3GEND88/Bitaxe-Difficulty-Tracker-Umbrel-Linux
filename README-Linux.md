@@ -8,14 +8,37 @@ No cloud. No accounts. Runs entirely on your local network. Full companion mobil
 
 ## What's New (Recent Updates)
 
-- **Dynamic Governor** (runs in the Node server, always-on) — auto-adjusts frequency/voltage/fan to hold miners inside temperature, VR-temp, and current (amps) bands, with dwell/settle timers, per-profile 24hr scheduling, and restart-after-adjust. Configurable from the desktop and mobile UI.
+This build is now feature-matched to the Windows release.
+
+**Fleet card** — the whole rig as one card above the miners: combined hashrate, total power, fleet efficiency, shares/rejects, fleet-wide all-time and session best, and 10m/1h averages. Collapsible and colour-settable, on desktop and mobile.
+
+**Luck** — 1h / 4h / 12h / 24h on the fleet card and every miner card. Green over 100%, amber and red under; hideable in the stats toggles. Three things make it accurate:
+- Miners that only log shares meeting the pool target (Nexus-class) are detected and scored by counting shares above target, rather than summing targets they never reported.
+- Under vardiff, expected count uses a time-weighted mean of 1/target, not 1/(mean target).
+- Downtime is excluded — expected work is measured over hashing time only, so a reboot doesn't drag a 24h window down for the rest of the day.
+
+**Analysis charts (Charts ▾)** — Luck Curve, Efficiency Curve, Volt/Temp Map, and Cold-Drop Watch, fed by a background run-logger that records each stable frequency/voltage operating point. Mobile gets the same four as scrollable sections.
+
+**Per-miner chart timeframe** — 1h / 2h / 4h / 6h / 8h / 12h / 24h / 36h per miner on the hashrate/temp chart, independent of the master setting.
+
+**Nexus per-share difficulty, now in the Node server.** Boards running NexusOS / BM1373 never log `diff X of Y` — they emit only raw stratum JSON. The server now reconstructs each share's difficulty itself (rebuilds the block header, double-SHA, compares to DIFF1) and injects the line the dashboard expects. `extranonce1` and the pool difficulty are captured live and **persisted to disk**, so a server restart resumes from the real values. If it attaches mid-session and hasn't seen a `mining.set_difficulty` yet, it estimates the target from the smallest submitted share, which converges from above within about 20 shares. *This is the biggest gap that was closed — previously Nexus-class miners produced no share data at all on Linux.*
+
+**Script actions for both fans** — `setAsicTargetTemp`, `setVrTargetTemp`, `setVrFanSpeed`. All fan writes echo the miner's `fans[]` array back verbatim and edit only the intended field, which fixes target-temp changes that appeared to do nothing (and the connector-1-stuck-at-90% lock). VR actions skip cleanly on single-fan miners.
+
+**`/fleet` endpoint** — serves fleet hashrate, shares, best difficulty and luck as JSON, for an Apple Watch complication or any external display, reachable over Tailscale.
+
+**Other fixes** — fleet session best now clears when a miner restarts; Min Fan Speed is always available in auto mode; the share stream recovers from a power cycle on its own; miner card spacing tightened.
+
+### Previously
+
+- **Dynamic Governor** (runs in the Node server, always-on) — auto-adjusts frequency/voltage/fan to hold miners inside temperature, VR-temp, and current (amps) bands, with dwell/settle timers, per-profile 24hr scheduling, and restart-after-adjust.
 - **Governor amps band** — cap current draw to protect the input connector, not just temperature.
 - **Governor fan-step control** — the governor can drive the manual fan (opposite to MHz/mV: hotter raises the fan), with fan floor/ceiling limits.
-- **Remove a miner without losing its history** — take a miner offline and its history stays; re-add the same IP later and it reconnects to its data.
-- **🧹 Purge Miner** — completely wipe a miner from every store (local + server) when you want it gone for good (desktop global button + per-miner on mobile).
-- **Per-miner all-time clear** — 🗑 to wipe a single miner's all-time Best Diffs or HR Scores, on desktop and mobile (durable; syncs both ways).
-- **VR fan control** — set the second (VR) fan's mode (Linked / Manual / Auto-PID), manual speed, and PID target temp independently of the ASIC fan.
-- **Correct target-temp & min-fan reading across firmwares** (Nexus-class) — no more snapping back to a default; the Min-Fan field only shows on boards that support it.
+- **Remove a miner without losing its history** — re-add the same IP later and it reconnects to its data.
+- **🧹 Purge Miner** — completely wipe a miner from every store when you want it gone for good.
+- **Per-miner all-time clear** — 🗑 to wipe a single miner's all-time Best Diffs or HR Scores (durable; syncs both ways).
+- **VR fan control** — mode (Linked / Manual / Auto-PID), manual speed, and PID target temp independent of the ASIC fan.
+- **Correct target-temp & min-fan reading across firmwares** (Nexus-class).
 - **Crash/Restart reports fire once per outage** instead of repeating every few minutes.
 
 ---
@@ -169,6 +192,8 @@ All data is saved to disk in the same folder as the server:
 | `settings-data.json` | App preferences |
 | `reports-data.json` | Crash/Restart session reports |
 | `session-data.json` | Session best list snapshot (auto-created) |
+| `nexus-enonce.json` | Captured `extranonce1` per miner — lets share-difficulty reconstruction survive a server restart |
+| `nexus-pooldiff.json` | Last known pool difficulty per miner, for the same reason |
 
 Data survives server restarts, reboots, and page refreshes. Server state is bounded — notifications capped at 50, all data structures have fixed maximum sizes to prevent memory growth over time.
 
@@ -190,6 +215,12 @@ sudo tailscale up
 Then access from anywhere: `http://100.x.x.x:19248`
 
 ---
+
+## Run on Boot
+
+The desktop app has a "Start with Windows" checkbox. That's Windows-only — on Linux the
+server answers `/startup` with `supported:false`, so the checkbox simply stays unchecked
+rather than erroring. Use systemd instead, as below.
 
 ## Umbrel / Linux — Run on Boot (systemd)
 

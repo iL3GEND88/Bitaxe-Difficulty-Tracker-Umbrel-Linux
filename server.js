@@ -8,6 +8,7 @@ const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
 const { WebSocket } = require('ws');
+const crypto = require('crypto');
 
 const PORT       = 19248;
 const SCRIPT_DIR = __dirname;
@@ -19,12 +20,69 @@ const ALLTIME_FILE  = path.join(SCRIPT_DIR, 'alltime-data.json');
 const SCRIPTS_FILE  = path.join(SCRIPT_DIR, 'scripts-data.json');
 const GOVERNORS_FILE = path.join(SCRIPT_DIR, 'governors-data.json');
 
+// ── Unified data store ───────────────────────────────────────────────────────
+// Same single file and same section names as the Windows build, so
+// bitaxe-data.json can be moved between a Windows box and this one unchanged.
+// Node parses JSON fast enough that the string-concatenation trick used in the
+// PowerShell version isn't needed here.
+const DATA_FILE = path.join(SCRIPT_DIR, 'bitaxe-data.json');
+const STORE_MIN_MS = 5000;
+let storeDirty = false, lastFlush = 0, lastPsig = null;
+let degCache = null, runlogCache = null, govStoreCache = null, ambLogCache = null;
+let pendingUwCfg = null;   // consumed on read, like the other mobile write channels
+
+function saveStore(force){
+  const now = Date.now();
+  if(!force){
+    if(!storeDirty) return;
+    if(now - lastFlush < STORE_MIN_MS) return;
+  }
+  try{
+    const out = {
+      v: 1,
+      session:     (sessionCache && Object.keys(sessionCache).length) ? sessionCache : null,
+      scripts:     scriptsCache   ? safeParse(scriptsCache)   : null,
+      reports:     reportsCache   ? safeParse(reportsCache)   : null,
+      degradation: degCache       ? safeParse(degCache)       : null,
+      runlog:      runlogCache    ? safeParse(runlogCache)    : null,
+      governors:   govStoreCache  ? safeParse(govStoreCache)  : null,
+      alltime:     allTimeCache   ? safeParse(allTimeCache)   : null,
+      ambientlog:  ambLogCache    ? safeParse(ambLogCache)    : null
+    };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(out), 'utf8');   // no BOM, unlike the old PS writer
+    storeDirty = false; lastFlush = now;
+  }catch(e){ console.log('  [Server] store write failed:', e.message); }
+}
+function safeParse(t){ try{ return JSON.parse(t); }catch(e){ return null; } }
+function sect(o, k){ const v = o && o[k]; return (v==null) ? null : JSON.stringify(v); }
+
+function loadStore(){
+  if(fs.existsSync(DATA_FILE)){
+    try{
+      const o = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8').replace(/^\uFEFF/, ''));
+      if(o.session && typeof o.session === 'object') sessionCache = o.session;
+      scriptsCache  = sect(o,'scripts');
+      reportsCache  = sect(o,'reports');
+      degCache      = sect(o,'degradation');
+      runlogCache   = sect(o,'runlog');
+      govStoreCache = sect(o,'governors');
+      allTimeCache  = sect(o,'alltime');
+      ambLogCache   = sect(o,'ambientlog');
+      console.log('  [Server] Loaded bitaxe-data.json');
+      return true;
+    }catch(e){ console.log('  [Server] bitaxe-data.json unreadable:', e.message); }
+  }
+  return false;
+}
+
+
 // ── In-memory state ────────────────────────────────────────────────────────────
 let pendingNotifs = null;
 let scriptsCache  = null;
 let pendingScripts = null;
 let arStateCache  = null;
 let reportsCache   = null;
+let fleetCache     = null;   // dumb cache: desktop computes fleetStats() and POSTs it here
 let pendingReports = null;
 let hrAllTimeCache = null;
 let pendingClearSession = null;
@@ -119,6 +177,156 @@ function initMinerState(ip, name, color){
   return minerState[ip];
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Nexus per-share difficulty reconstruction
+//
+//  NexusOS / BM1373 firmware never logs "asic_result ... diff X of Y" — it emits
+//  only the raw stratum JSON. So we watch the stratum exchange, rebuild the block
+//  header ourselves, double-SHA it, and inject a "Nexus share diff X of Y" line
+//  the dashboard's existing parser already understands.
+//
+//  Byte order is locked and verified against real captures: prevhash is
+//  word-swapped, version rolling is applied through the mask, ver/ntime/nbits/
+//  nonce are little-endian, merkle branches are used as-is, and the final digest
+//  is reversed before comparing to DIFF1.
+// ═══════════════════════════════════════════════════════════════════════════
+const NX_ENONCE_FILE = path.join(SCRIPT_DIR, 'nexus-enonce.json');
+const NX_DIFF_FILE   = path.join(SCRIPT_DIR, 'nexus-pooldiff.json');
+const NX_DIFF1 = BigInt('0x00000000ffff0000000000000000000000000000000000000000000000000000');
+
+function nxLoadStore(f){ try{ return JSON.parse(fs.readFileSync(f,'utf8')); }catch(e){ return {}; } }
+function nxSaveStore(f,ip,val){
+  try{ const m=nxLoadStore(f); m[ip]=val; fs.writeFileSync(f,JSON.stringify(m),'utf8'); }catch(e){}
+}
+
+const nxHex   = h => Buffer.from(h,'hex');
+const nxSha   = b => crypto.createHash('sha256').update(b).digest();
+const nxSha2  = b => nxSha(nxSha(b));
+function nxSwap32(b){
+  const o=Buffer.alloc(b.length);
+  for(let i=0;i<b.length;i+=4){ o[i]=b[i+3]; o[i+1]=b[i+2]; o[i+2]=b[i+1]; o[i+3]=b[i]; }
+  return o;
+}
+function nxU32LE(v){ const b=Buffer.alloc(4); b.writeUInt32LE(v>>>0,0); return b; }
+
+function nxShareDiff(en1, job, en2, ntimeHex, nonceHex, vbitsHex, mask){
+  // merkle root from the coinbase we can reconstruct
+  let mr = nxSha2(Buffer.concat([nxHex(job.coinb1), nxHex(en1), nxHex(en2), nxHex(job.coinb2)]));
+  for(const br of job.merkle) mr = nxSha2(Buffer.concat([mr, nxHex(br)]));
+
+  const jv   = parseInt(job.version,16)>>>0;
+  const vb   = parseInt(vbitsHex,16)>>>0;
+  const nm   = (0xFFFFFFFF ^ mask)>>>0;
+  const hver = (((jv & nm)>>>0) | ((vb & mask)>>>0))>>>0;
+
+  const header = Buffer.concat([
+    nxU32LE(hver),
+    nxSwap32(nxHex(job.prevhash)),
+    mr,
+    nxU32LE(parseInt(ntimeHex,16)),
+    nxU32LE(parseInt(job.nbits,16)),
+    nxU32LE(parseInt(nonceHex,16))
+  ]);
+  const h = Buffer.from(nxSha2(header)).reverse();
+  const H = BigInt('0x'+h.toString('hex'));
+  if(H <= 0n) return 0;
+  return Number(NX_DIFF1 * 1000000n / H) / 1e6;
+}
+
+const nxState = {};   // per-IP stratum state
+function nxInit(ip){
+  if(nxState[ip]) return nxState[ip];
+  const savedEn = nxLoadStore(NX_ENONCE_FILE)[ip] || null;
+  const savedD  = parseInt(nxLoadStore(NX_DIFF_FILE)[ip],10) || 0;
+  if(savedEn) console.log(`  [Nexus] using saved extranonce1 ${savedEn} for ${ip}`);
+  if(savedD)  console.log(`  [Nexus] using saved pool difficulty ${savedD} for ${ip}`);
+  nxState[ip] = {
+    en1: savedEn, mask: 0x1fffe000,
+    poolDiff: savedD>0 ? savedD : 10000,
+    diffKnown: savedD>0,
+    jobs: {}, order: [], sub: 0,
+    minSeen: 0, minCount: 0
+  };
+  return nxState[ip];
+}
+
+// Returns a synthesized log line to inject, or null.
+function nxOnLine(ip, line){
+  if(!/mining\.|extranonce_str|version mask/.test(line)) return null;
+  const st = nxInit(ip);
+  try{
+    let m;
+    if((m = /extranonce_str:\s*([0-9a-fA-F]+)/.exec(line))){
+      if(st.en1 !== m[1]){ st.en1 = m[1]; nxSaveStore(NX_ENONCE_FILE, ip, st.en1);
+        console.log(`  [Nexus] extranonce1 captured ${st.en1} for ${ip} (saved)`); }
+      return null;
+    }
+    if((m = /version mask:\s*([0-9a-fA-F]+)/.exec(line))){ st.mask = parseInt(m[1],16); return null; }
+    if(!/"method":\s*"mining\.(notify|submit|set_difficulty)"/.test(line) &&
+       !/"result":\[\[\["mining\.notify"/.test(line)) return null;
+
+    const j = JSON.parse(line.substring(line.indexOf('{')));
+
+    // subscribe response carries extranonce1 as result[1]
+    if(j.result && j.result.length >= 2){
+      const e = String(j.result[1]);
+      if(st.en1 !== e){ st.en1 = e; nxSaveStore(NX_ENONCE_FILE, ip, e);
+        console.log(`  [Nexus] extranonce1 captured ${e} for ${ip} (saved)`); }
+      return null;
+    }
+
+    if(j.method === 'mining.set_difficulty'){
+      const nd = parseInt(j.params[0],10);
+      if(nd > 0){
+        if(nd !== st.poolDiff) console.log(`  [Nexus] pool difficulty ${st.poolDiff} -> ${nd} for ${ip} (saved)`);
+        st.poolDiff = nd; nxSaveStore(NX_DIFF_FILE, ip, nd);
+      }
+      st.diffKnown = true; st.minSeen = 0; st.minCount = 0;
+      return null;
+    }
+
+    if(j.method === 'mining.notify'){
+      const jid = String(j.params[0]);
+      st.jobs[jid] = { prevhash:String(j.params[1]), coinb1:String(j.params[2]),
+                       coinb2:String(j.params[3]), merkle:j.params[4],
+                       version:String(j.params[5]), nbits:String(j.params[6]) };
+      st.order.push(jid);
+      while(st.order.length > 12){ delete st.jobs[st.order.shift()]; }
+      return null;
+    }
+
+    if(j.method === 'mining.submit'){
+      st.sub++;
+      const job = st.jobs[String(j.params[1])];
+      if(job && st.en1){
+        const d = nxShareDiff(st.en1, job, String(j.params[2]), String(j.params[3]),
+                              String(j.params[4]), String(j.params[5]), st.mask);
+        if(d > 0){
+          // No set_difficulty seen yet: infer the target from the smallest share
+          // submitted. The miner never submits below target, so it converges from above.
+          if(!st.diffKnown){
+            if(st.minSeen <= 0 || d < st.minSeen) st.minSeen = d;
+            st.minCount++;
+            if(st.minCount >= 20 && st.minSeen > 0){
+              const est = Math.round(st.minSeen);
+              if(est > 0 && Math.abs(est - st.poolDiff)/st.poolDiff > 0.15){
+                console.log(`  [Nexus] no set_difficulty yet; estimated pool difficulty ${est} from ${st.minCount} shares (was ${st.poolDiff})`);
+                st.poolDiff = est; nxSaveStore(NX_DIFF_FILE, ip, est);
+              }
+              st.minCount = 0; st.minSeen = 0;
+            }
+          }
+          return `Nexus share  diff ${d.toFixed(1)} of ${st.poolDiff}`;
+        }
+      } else if(st.sub <= 3 || st.sub % 25 === 0){
+        console.log(`  [Nexus] submit seen, cannot compute yet (en1=${!!st.en1} jobCached=${!!job}) - if en1 is false, reboot the Nexus once while the tracker is running`);
+      }
+    }
+  }catch(e){ if(nxState[ip] && nxState[ip].sub <= 5) console.log(`  [Nexus] parse note: ${e.message}`); }
+  return null;
+}
+
 function connectMiner(ip, name, color){
   if(minerWS[ip]) return; // already connected
   const m = initMinerState(ip, name, color);
@@ -148,6 +356,16 @@ function connectMiner(ip, name, color){
         if(sseClients[ip]) sseClients[ip].forEach(res => {
           try { res.write(`data: ${msg}\n\n`); } catch(e){}
         });
+
+        // ── Nexus per-share difficulty ──
+        // Boards that never log "diff X of Y" get the line synthesized here from
+        // the raw stratum exchange, so the chart and luck maths see their shares.
+        try {
+          const nxLine = nxOnLine(ip, stripAnsi(msg));
+          if(nxLine && sseClients[ip]) sseClients[ip].forEach(res => {
+            try { res.write(`data: ${nxLine}\n\n`); } catch(e){}
+          });
+        } catch(e){}
         // Parse log lines for difficulty
         const parsed = JSON.parse(msg);
         if(parsed && parsed.log){
@@ -316,8 +534,15 @@ try {
       console.log(`  [Server] Loaded ${ips.length} miners from file`);
     } catch(e){}
   }
-  if(fs.existsSync(ALLTIME_FILE)){ allTimeCache=fs.readFileSync(ALLTIME_FILE,'utf8'); console.log('  [Server] Loaded all-time data'); }
-  if(fs.existsSync(SCRIPTS_FILE)){ scriptsCache=fs.readFileSync(SCRIPTS_FILE,'utf8'); console.log('  [Server] Loaded scripts'); }
+  // Unified store first. Only fall back to the individual legacy files when it
+  // doesn't exist yet, then write the combined one so the migration is one-way.
+  const _unified = loadStore();
+  if(!_unified){
+    if(fs.existsSync(ALLTIME_FILE)){ allTimeCache=fs.readFileSync(ALLTIME_FILE,'utf8'); console.log('  [Server] Loaded all-time data (legacy)'); }
+    if(fs.existsSync(SCRIPTS_FILE)){ scriptsCache=fs.readFileSync(SCRIPTS_FILE,'utf8'); console.log('  [Server] Loaded scripts (legacy)'); }
+    saveStore(true);
+    console.log('  [Server] Migrated legacy files into bitaxe-data.json');
+  }
   if(fs.existsSync(GOVERNORS_FILE)){ try{ _govLoadFrom(fs.readFileSync(GOVERNORS_FILE,'utf8')); console.log('  [Server] Loaded governors'+(_govEnabled?' (ON)':' (off)')); }catch(e){} }
 } catch(e){ console.log('  [Server] Could not load data files:', e.message); }
 
@@ -625,8 +850,88 @@ const server=http.createServer(async(req,res)=>{
     const body=await readBody(req);
     if(req.method==='POST'){
       try{const d=JSON.parse(body);sessionCache=d;}catch(e){}
+      // Session was memory-only here, so top shares and session bests died with
+      // the relay. Persist it, gated on the desktop's X-Persist-Sig: if nothing
+      // unrecoverable changed there is nothing worth writing.
+      const psig = req.headers['x-persist-sig'];
+      if(!psig || psig !== lastPsig){
+        if(psig) lastPsig = psig;
+        const txt = JSON.stringify(sessionCache);
+        if(txt.includes('"topSeriesSnapshot":[{') || txt.includes('"sessionCleared":true')){
+          storeDirty = true; saveStore();
+        }
+      }
       return json(res,{ok:true});
     }else{ return json(res,sessionCache); }
+  }
+
+  // ── Underperformance watchdog config (mobile -> desktop write channel) ──
+  if(path_==='/setuwcfg' && req.method==='POST'){
+    const body=await readBody(req);
+    if(body && body.length>1) pendingUwCfg = body;
+    return json(res,{ok:true});
+  }
+  if(path_==='/getuwcfg'){
+    const out = pendingUwCfg; pendingUwCfg = null;
+    res.writeHead(200,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'});
+    return res.end(out || 'null');
+  }
+
+  // ── Degradation log, run-log, governor store, ambient history ──
+  if(path_==='/degradation'){
+    const body=await readBody(req);
+    if(req.method==='POST'){
+      if(body && body.length>1){ degCache=body; storeDirty=true; saveStore(); }
+      return json(res,{ok:true});
+    }
+    res.writeHead(200,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'});
+    return res.end(degCache || 'null');
+  }
+  if(path_==='/runlog'){
+    const body=await readBody(req);
+    if(req.method==='POST'){
+      if(body && body.length>1){ runlogCache=body; storeDirty=true; saveStore(); }
+      return json(res,{ok:true});
+    }
+    res.writeHead(200,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'});
+    return res.end(runlogCache || 'null');
+  }
+  if(path_==='/governorstore'){
+    const body=await readBody(req);
+    if(req.method==='POST'){
+      if(body && body.length>1){ govStoreCache=body; storeDirty=true; saveStore(true); }
+      return json(res,{ok:true});
+    }
+    res.writeHead(200,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'});
+    return res.end(govStoreCache || 'null');
+  }
+  if(path_==='/ambientlog'){
+    const body=await readBody(req);
+    if(req.method==='POST'){
+      if(body && body.length>1){ ambLogCache=body; storeDirty=true; saveStore(); }
+      return json(res,{ok:true});
+    }
+    res.writeHead(200,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'});
+    return res.end(ambLogCache || 'null');
+  }
+
+  // ── Storage audit: read back off disk, not from the in-memory caches ──
+  if(path_==='/storeinfo'){
+    let bytes=0, modified='', onDisk=null;
+    try{
+      if(fs.existsSync(DATA_FILE)){
+        const st=fs.statSync(DATA_FILE); bytes=st.size;
+        modified=new Date(st.mtime).toISOString().replace('T',' ').slice(0,19);
+        onDisk=JSON.parse(fs.readFileSync(DATA_FILE,'utf8').replace(/^\uFEFF/,''));
+      }
+    }catch(e){}
+    const sections={};
+    ['session','scripts','reports','degradation','runlog','governors','alltime','ambientlog'].forEach(function(nm){
+      const v=onDisk?onDisk[nm]:null;
+      sections[nm]={ bytes: v==null?0:JSON.stringify(v).length,
+                     items: v==null?0:(Array.isArray(v)?v.length:Object.keys(v).length) };
+    });
+    return json(res,{file:DATA_FILE, bytes:bytes, modified:modified, sections:sections});
   }
 
   // ── All-time ──
@@ -635,6 +940,7 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='POST'){
       allTimeCache=body;
       try{fs.writeFileSync(ALLTIME_FILE,body,'utf8');}catch(e){}
+      storeDirty=true; saveStore(true);   // all-time is the one thing that can never be rebuilt
       return json(res,{ok:true});
     }else{
       cors(res);res.writeHead(200,{'Content-Type':'application/json'});
@@ -763,6 +1069,35 @@ const server=http.createServer(async(req,res)=>{
     const dc=pendingDiffClear||'{}'; pendingDiffClear=null;
     cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(dc); return;
   }
+  // ── /fleet ── flat combined rollup for watch complications / widgets.
+  // The desktop computes it (fleetStats() stays the single source of truth) and
+  // POSTs it here; this server is only a cache.
+  if(path_==='/fleet'){
+    if(method==='POST'){ const body=await readBody(req); if(body&&body.length>2) fleetCache=body; return json(res,{ok:true}); }
+    cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(fleetCache||'{}'); return;
+  }
+
+  // ── /reports ── same store as /setreports + /getreports, POST/GET on one path
+  if(path_==='/reports'){
+    if(method==='POST'){
+      const body=await readBody(req);
+      if(body&&body.length>2){
+        reportsCache=body;
+        try{ fs.writeFileSync(path.join(SCRIPT_DIR,'reports-data.json'), body, 'utf8'); }catch(e){}
+      }
+      cors(res); res.writeHead(200); res.end('ok'); return;
+    }
+    cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(reportsCache||'{}'); return;
+  }
+
+  // ── /startup ── Windows-only (adds a Startup shortcut). Answer honestly on
+  // Linux so the checkbox shows unchecked instead of the UI erroring out.
+  // Use systemd or your desktop's autostart to launch this on boot.
+  if(path_==='/startup'){
+    if(method==='POST'){ await readBody(req); return json(res,{ok:false,supported:false}); }
+    return json(res,{enabled:false,supported:false});
+  }
+
   if(path_==='/setreports'&&method==='POST'){ const body=await readBody(req); reportsCache=body; return json(res,{ok:true}); }
   if(path_==='/getreports'){
     cors(res); res.writeHead(200,{'Content-Type':'application/json'}); res.end(reportsCache||'{}'); return;
